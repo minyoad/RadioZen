@@ -98,8 +98,15 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
           </div>
         </div>
 
-        {/* Mobile Play Button (Right) */}
-        <div className="flex md:hidden items-center justify-end">
+        {/* Mobile Controls (Right) */}
+        <div className="flex md:hidden items-center justify-end gap-3">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onNext(); }}
+            className="w-10 h-10 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white active:scale-95 transition-all"
+          >
+            <SkipForward size={24} />
+          </button>
+
           <button 
             onClick={(e) => { e.stopPropagation(); onTogglePlay(); }}
             className="w-10 h-10 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-full flex items-center justify-center"

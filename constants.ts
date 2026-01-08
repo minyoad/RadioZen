@@ -551,9 +551,7 @@ CCTV2,https://piccpndali.v.myalicdn.com/audio/cctv2_2.m3u8
 
 CCTV4,https://piccpndali.v.myalicdn.com/audio/cctv4_2.m3u8
 
-CCTV4,https://piccpndali.v.myalicdn.com/audio/cctveurope_2.m3u8
-
-CCTV4,https://piccpndali.v.myalicdn.com/audio/cctvamerica_2.m3u8
+CCTV4美洲,https://piccpndali.v.myalicdn.com/audio/cctvamerica_2.m3u8
 
 CCTV5,https://piccpndali.v.myalicdn.com/audio/cctv5_2.m3u8
 

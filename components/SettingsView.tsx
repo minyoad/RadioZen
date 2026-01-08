@@ -4,9 +4,10 @@ import { Volume2, Moon, Bell, Info, ChevronRight, Smartphone, Wifi, Headphones, 
 interface SettingsViewProps {
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
+  onNavigate: (tab: string) => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggleTheme }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggleTheme, onNavigate }) => {
   // Load settings from local storage or default
   const [highQuality, setHighQuality] = useState(() => {
     return localStorage.getItem('setting_highQuality') !== 'false';
@@ -123,7 +124,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggle
       <div>
         <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">关于</h3>
         <div className="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
-           <div className="p-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+           <div 
+            onClick={() => onNavigate('about')}
+            className="p-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+           >
             <div className="flex items-center gap-3">
               <div className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg">
                 <Info size={20} />
@@ -133,7 +137,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggle
             <ChevronRight size={18} className="text-slate-400 dark:text-slate-600" />
           </div>
           <div className="p-4 text-center text-xs text-slate-500">
-             版本 v1.0.3 (Build 20231101)
+             版本 v1.1.0 (Build 20231102)
           </div>
         </div>
       </div>

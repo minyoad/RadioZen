@@ -9,6 +9,7 @@ import { MobileFullPlayer } from './components/MobileFullPlayer';
 import { StationDetail } from './components/StationDetail';
 import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
+import { AboutView } from './components/AboutView';
 import { AddStationModal } from './components/AddStationModal';
 import { STATIONS, CATEGORIES } from './constants';
 import { Station, UserProfile } from './types';
@@ -782,7 +783,9 @@ const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsView isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(!isDarkMode)} />;
+        return <SettingsView isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(!isDarkMode)} onNavigate={setActiveTab} />;
+      case 'about':
+        return <AboutView onBack={() => setActiveTab('settings')} />;
       default:
         return (
             <div className="flex flex-col items-center justify-center h-full text-slate-500">
