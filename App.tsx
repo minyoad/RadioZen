@@ -117,13 +117,77 @@ const App: React.FC = () => {
     }
   });
 
-  // Fallback state
+  // Fallback & Upgrade state
   const [useFallback, setUseFallback] = useState(false);
+  const [autoHttpsUpgrade, setAutoHttpsUpgrade] = useState(false);
 
   // Refs
   const audioRef = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const retryCount = useRef(0);
+  const fadeIntervalRef = useRef<number | null>(null);
+
+  // --- Volume Fading Logic ---
+  const clearFade = () => {
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current);
+      fadeIntervalRef.current = null;
+    }
+  };
+
+  const startFadeIn = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    clearFade();
+
+    const stationGain = currentStation?.gain ?? 1.0;
+    const targetVol = isMuted ? 0 : Math.min(1.0, Math.max(0, volume * stationGain));
+
+    // Start from 0 for soft start
+    audio.volume = 0;
+
+    const duration = 1500; // 1.5s
+    const stepTime = 50;
+    const step = targetVol / (duration / stepTime);
+
+    fadeIntervalRef.current = window.setInterval(() => {
+      if (!audio) return;
+      const newVol = audio.volume + step;
+      if (newVol >= targetVol) {
+        audio.volume = targetVol;
+        clearFade();
+      } else {
+        audio.volume = newVol;
+      }
+    }, stepTime);
+  };
+
+  const fadeOut = async () => {
+    const audio = audioRef.current;
+    if (!audio || audio.paused || audio.volume === 0) return;
+
+    clearFade();
+
+    return new Promise<void>(resolve => {
+      const duration = 500; // 0.5s fade out
+      const stepTime = 30;
+      const startVol = audio.volume;
+      const step = startVol / (duration / stepTime);
+
+      fadeIntervalRef.current = window.setInterval(() => {
+        if (!audio) { resolve(); return; }
+        const newVol = audio.volume - step;
+        if (newVol <= 0) {
+          audio.volume = 0;
+          clearFade();
+          resolve();
+        } else {
+          audio.volume = newVol;
+        }
+      }, stepTime);
+    });
+  };
 
   // Effect: Theme Management
   useEffect(() => {
@@ -166,6 +230,9 @@ const App: React.FC = () => {
   // Effect: Volume control with Station Gain Normalization
   useEffect(() => {
     if (audioRef.current) {
+      // If user adjusts volume manually, stop fading and apply immediately
+      clearFade();
+      
       if (isMuted) {
         audioRef.current.volume = 0;
       } else {
@@ -177,7 +244,7 @@ const App: React.FC = () => {
         audioRef.current.volume = Math.min(1.0, Math.max(0, effectiveVolume));
       }
     }
-  }, [volume, isMuted, currentStation]); // Re-run when station changes to apply new gain
+  }, [volume, isMuted]); // Removed currentStation dependency to avoid conflict with fade-in
 
   // Effect: Switch to discover tab when searching
   useEffect(() => {
@@ -198,9 +265,14 @@ const App: React.FC = () => {
     }
 
     // Determine which URL to use (primary or fallback)
-    const src = useFallback && currentStation.fallbackStreamUrl 
+    let src = useFallback && currentStation.fallbackStreamUrl 
       ? currentStation.fallbackStreamUrl 
       : currentStation.streamUrl;
+
+    // Logic: If automatic upgrade is triggered and the URL is http, switch to https
+    if (autoHttpsUpgrade && src.startsWith('http:')) {
+      src = src.replace('http:', 'https:');
+    }
 
     const isM3u8 = src.includes('.m3u8') || src.includes('application/x-mpegurl');
 
@@ -210,6 +282,9 @@ const App: React.FC = () => {
       hlsRef.current = null;
       retryCount.current = 0; // Reset retry count on source change
     }
+
+    // Prepare audio element for fade in (start silent)
+    audio.volume = 0;
 
     if (isM3u8 && Hls.isSupported()) {
       const hls = new Hls({
@@ -231,7 +306,9 @@ const App: React.FC = () => {
         if (isPlaying) {
           const playPromise = audio.play();
           if (playPromise !== undefined) {
-             playPromise.catch(error => {
+             playPromise.then(() => {
+                 startFadeIn();
+             }).catch(error => {
                 if (error.name === 'AbortError') return;
                 console.error("HLS Auto-play failed:", error instanceof Error ? error.message : String(error));
              });
@@ -243,25 +320,28 @@ const App: React.FC = () => {
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              // Avoid logging the entire data object which may contain circular refs to DOM nodes
               console.error(`HLS Network error: ${data.details}`);
-              // Try to recover network error with limit
-              if (retryCount.current < 3) {
+              
+              if (!autoHttpsUpgrade && src.startsWith('http:')) {
+                console.log('HLS Network Error: Attempting auto-upgrade to HTTPS...');
+                setAutoHttpsUpgrade(true);
+                return;
+              }
+
+              if (retryCount.current < 2) {
                 retryCount.current++;
-                console.log(`Attempting to recover from network error (attempt ${retryCount.current}/3)...`);
+                console.log(`Attempting to recover from network error (attempt ${retryCount.current}/2)...`);
                 hls.startLoad();
               } else {
-                // If we ran out of retries, check if we have a fallback stream
                 if (!useFallback && currentStation.fallbackStreamUrl) {
                   console.warn("HLS Network error: Max retries reached. Switching to fallback stream...");
                   setUseFallback(true);
-                  // Changing state triggers the effect again with new URL
+                  setAutoHttpsUpgrade(false);
                 } else {
                   console.error("HLS Network error: Max retries reached. Marking station as unplayable.");
                   hls.destroy();
                   setIsPlaying(false);
                   
-                  // Mark as unplayable
                   setUnplayableStationIds(prev => {
                       const next = new Set(prev);
                       next.add(currentStation.id);
@@ -278,7 +358,6 @@ const App: React.FC = () => {
               console.error(`HLS Fatal error: ${data.details}`);
               hls.destroy();
               setIsPlaying(false);
-              // Fatal non-network errors usually mean bad stream format or decoding error
                setUnplayableStationIds(prev => {
                   const next = new Set(prev);
                   next.add(currentStation.id);
@@ -286,11 +365,6 @@ const App: React.FC = () => {
               });
               break;
           }
-        } else {
-            // Non-fatal errors (often minor network hiccups)
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                 console.log(`HLS non-fatal network error: ${data.details}`);
-            }
         }
       });
     } else {
@@ -300,7 +374,9 @@ const App: React.FC = () => {
       if (isPlaying) {
         const playPromise = audio.play();
         if (playPromise !== undefined) {
-           playPromise.catch(error => {
+           playPromise.then(() => {
+               startFadeIn();
+           }).catch(error => {
               if (error.name === 'AbortError') return;
               console.error("Playback failed:", error instanceof Error ? error.message : String(error));
               setIsPlaying(false);
@@ -309,14 +385,14 @@ const App: React.FC = () => {
       }
     }
 
-    // Cleanup when component unmounts or station changes
     return () => {
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
+      clearFade();
     };
-  }, [currentStation?.id, useFallback, unplayableStationIds]); // Re-run if station changes or fallback state toggles
+  }, [currentStation?.id, useFallback, autoHttpsUpgrade, unplayableStationIds]);
 
   // Effect: Handle Play/Pause toggling
   useEffect(() => {
@@ -328,7 +404,9 @@ const App: React.FC = () => {
         if (audio.src || (hlsRef.current && audio.src)) {
           const playPromise = audio.play();
           if (playPromise !== undefined) {
-            playPromise.catch(error => {
+            playPromise.then(() => {
+                startFadeIn();
+            }).catch(error => {
               if (error.name === 'AbortError' || error.name === 'NotSupportedError') return;
               console.error("Play toggle failed:", error instanceof Error ? error.message : String(error));
             });
@@ -347,16 +425,13 @@ const App: React.FC = () => {
 
   const handleAddCustomStation = (newStation: Station) => {
     setCustomStations(prev => [...prev, newStation]);
-    // Automatically add to favorites for easy access
     setFavorites(prev => [...prev, newStation.id]);
-    // Show user it's done (switch to favorites)
     setActiveTab('favorites');
   };
 
   const handleDeleteCustomStation = (id: string) => {
     if (window.confirm("确定要删除这个自定义电台吗？")) {
        setCustomStations(prev => prev.filter(s => s.id !== id));
-       // Also remove from favorites, recent, playlist
        setFavorites(prev => prev.filter(fid => fid !== id));
        setRecentStationIds(prev => prev.filter(rid => rid !== id));
        setPlaylist(prev => prev.filter(s => s.id !== id));
@@ -389,27 +464,39 @@ const App: React.FC = () => {
     });
   };
 
-  const handlePlayStation = (station: Station, context: 'all' | 'playlist' = 'all') => {
-    if (unplayableStationIds.has(station.id)) return; // Prevent playing broken stations
-
-    setPlayContext(context);
+  const handlePlayStation = async (station: Station, context: 'all' | 'playlist' = 'all') => {
+    if (unplayableStationIds.has(station.id)) return;
 
     if (currentStation?.id === station.id) {
-      setIsPlaying(!isPlaying);
+      // Toggle Play/Pause
+      if (isPlaying) {
+         await fadeOut();
+         setIsPlaying(false);
+      } else {
+         setIsPlaying(true);
+      }
     } else {
-      setUseFallback(false); // Reset fallback state for new station
+      // Switch Station
+      if (isPlaying) {
+         await fadeOut();
+      }
+      
+      setPlayContext(context);
+      setUseFallback(false);
+      setAutoHttpsUpgrade(false);
       setCurrentStation(station);
       setIsPlaying(true);
       addToRecent(station);
     }
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!currentStation) return;
     
-    setUseFallback(false); // Reset fallback state
+    setUseFallback(false);
+    setAutoHttpsUpgrade(false);
 
-    let listToUse = stations.filter(s => !unplayableStationIds.has(s.id)); // Skip bad stations
+    let listToUse = stations.filter(s => !unplayableStationIds.has(s.id));
     if (playContext === 'playlist' && playlist.length > 0) {
       listToUse = playlist.filter(s => !unplayableStationIds.has(s.id));
     }
@@ -417,21 +504,23 @@ const App: React.FC = () => {
     if (listToUse.length === 0) return;
 
     const currentIndex = listToUse.findIndex(s => s.id === currentStation.id);
-    // If not found (e.g. removed from playlist while playing), default to 0
     const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % listToUse.length;
     
+    if (isPlaying) await fadeOut();
+
     const nextStation = listToUse[nextIndex];
     setCurrentStation(nextStation);
     setIsPlaying(true);
     addToRecent(nextStation);
   };
 
-  const handlePrev = () => {
+  const handlePrev = async () => {
     if (!currentStation) return;
 
-    setUseFallback(false); // Reset fallback state
+    setUseFallback(false);
+    setAutoHttpsUpgrade(false);
 
-    let listToUse = stations.filter(s => !unplayableStationIds.has(s.id)); // Skip bad stations
+    let listToUse = stations.filter(s => !unplayableStationIds.has(s.id));
     if (playContext === 'playlist' && playlist.length > 0) {
       listToUse = playlist.filter(s => !unplayableStationIds.has(s.id));
     }
@@ -441,6 +530,8 @@ const App: React.FC = () => {
     const currentIndex = listToUse.findIndex(s => s.id === currentStation.id);
     const prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + listToUse.length) % listToUse.length;
     
+    if (isPlaying) await fadeOut();
+
     const prevStation = listToUse[prevIndex];
     setCurrentStation(prevStation);
     setIsPlaying(true);
@@ -489,10 +580,9 @@ const App: React.FC = () => {
     setFavorites(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]);
   };
 
-  // --- Media Session API Integration (Hardware Media Keys & Bluetooth) ---
+  // --- Media Session API Integration ---
   useEffect(() => {
     if ('mediaSession' in navigator && currentStation) {
-      // 1. Update Metadata (Lock screen / Notification Center)
       navigator.mediaSession.metadata = new MediaMetadata({
         title: currentStation.name,
         artist: currentStation.description || 'RadioZen Online Radio',
@@ -507,63 +597,35 @@ const App: React.FC = () => {
         ]
       });
 
-      // 2. Update Playback State
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
 
-      // 3. Set Action Handlers
-      // Note: We're using closures here, so these handlers need to be re-bound 
-      // when their dependencies (like handleNext/handlePrev which rely on currentStation/playlist) change.
-      
-      navigator.mediaSession.setActionHandler('play', () => {
-        setIsPlaying(true);
+      navigator.mediaSession.setActionHandler('play', () => setIsPlaying(true));
+      navigator.mediaSession.setActionHandler('pause', async () => {
+          await fadeOut();
+          setIsPlaying(false);
       });
-
-      navigator.mediaSession.setActionHandler('pause', () => {
-        setIsPlaying(false);
+      navigator.mediaSession.setActionHandler('stop', async () => {
+          await fadeOut();
+          setIsPlaying(false);
       });
-
-      navigator.mediaSession.setActionHandler('stop', () => {
-        setIsPlaying(false);
-      });
-
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        handlePrev();
-      });
-
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        handleNext();
-      });
-      
-      // Clear seek handlers as this is live radio
+      navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
+      navigator.mediaSession.setActionHandler('nexttrack', handleNext);
       navigator.mediaSession.setActionHandler('seekbackward', null);
       navigator.mediaSession.setActionHandler('seekforward', null);
-
-      return () => {
-         // Cleanup is mostly handled by re-registering or browser defaults, 
-         // but we can unset if needed when unmounting or changing stations.
-         // navigator.mediaSession.setActionHandler('play', null);
-      };
     }
-  }, [currentStation, isPlaying, handleNext, handlePrev]);
+  }, [currentStation, isPlaying, handleNext, handlePrev]); // Dependencies updated
 
   // Derived Data
   const filteredStations = stations.filter(station => {
-    // 0. Filter out unplayable stations from discovery (Active List management)
     if (unplayableStationIds.has(station.id)) return false;
-
-    // 1. Filter by Category
     if (selectedCategory !== 'all' && station.category !== selectedCategory) return false;
-
-    // 2. Filter by Tag
     if (selectedTag && !station.tags.includes(selectedTag)) return false;
     
-    // 3. Filter by Search Query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       const matchesName = station.name.toLowerCase().includes(query);
       const matchesDesc = station.description.toLowerCase().includes(query);
       const matchesTags = station.tags.some(tag => tag.toLowerCase().includes(query));
-      
       return matchesName || matchesDesc || matchesTags;
     }
 
@@ -571,7 +633,6 @@ const App: React.FC = () => {
   });
 
   const favoriteStations = stations.filter(s => favorites.includes(s.id));
-
   const recentStations = recentStationIds
     .map(id => stations.find(s => s.id === id))
     .filter((s): s is Station => !!s);
@@ -595,7 +656,7 @@ const App: React.FC = () => {
       case 'discover':
         return (
             <>
-              {/* Hero / Featured - Hide if searching or filtering by tag */}
+              {/* Hero / Featured */}
               {!searchQuery && !selectedTag && stations.length > 0 && !unplayableStationIds.has(stations[0].id) && (
                 <div className="mb-8 p-6 md:p-8 rounded-3xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden shadow-2xl">
                    <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/4 blur-3xl"></div>
@@ -806,18 +867,22 @@ const App: React.FC = () => {
         ref={audioRef} 
         onEnded={handleNext} // Auto-play next when stream/track ends (mostly for mp3 files)
         onError={(e) => {
-            // Safe logging
             const target = e.currentTarget;
             console.error("Native Audio Error:", target.error?.code, target.error?.message);
             
-            // Try fallback if primary fails in native mode
+            if (!autoHttpsUpgrade && currentStation?.streamUrl.startsWith('http:') && !useFallback) {
+                console.warn("Native playback failed on HTTP, upgrading to HTTPS...");
+                setAutoHttpsUpgrade(true);
+                return;
+            }
+
             if (!useFallback && currentStation?.fallbackStreamUrl && isPlaying) {
                  console.warn("Native playback failed, attempting switch to fallback stream...");
                  setUseFallback(true);
+                 setAutoHttpsUpgrade(false);
                  return;
             }
 
-            // Only mark as unplayable if HLS isn't handling it (native mode or fallback failed)
             if (!hlsRef.current) {
                setIsPlaying(false);
                if (currentStation) {
@@ -897,7 +962,6 @@ const App: React.FC = () => {
                 {/* Show Logo on mobile since Sidebar is hidden */}
                 <div className="md:hidden flex items-center gap-2">
                     <div className="w-8 h-8 bg-gradient-to-tr from-violet-500 to-fuchsia-500 rounded-lg flex items-center justify-center">
-                        {/* Simple Radio Icon */}
                         <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M9 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     </div>
                     <span className="font-bold text-lg text-slate-900 dark:text-white">RadioZen</span>
@@ -972,7 +1036,10 @@ const App: React.FC = () => {
         <PlayerBar 
           currentStation={currentStation}
           isPlaying={isPlaying}
-          onTogglePlay={() => setIsPlaying(!isPlaying)}
+          onTogglePlay={() => {
+              // Trigger play toggle logic which handles fadeOut/fadeIn
+              handlePlayStation(currentStation!, playContext);
+          }}
           volume={volume}
           onVolumeChange={setVolume}
           isMuted={isMuted}
@@ -992,7 +1059,9 @@ const App: React.FC = () => {
           <MobileFullPlayer 
             station={currentStation}
             isPlaying={isPlaying}
-            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            onTogglePlay={() => {
+                 handlePlayStation(currentStation!, playContext);
+            }}
             onClose={() => setShowFullPlayer(false)}
             onNext={handleNext}
             onPrev={handlePrev}
