@@ -1,7 +1,7 @@
 {
   "name": "RadioZen 在线广播",
   "short_name": "RadioZen",
-  "start_url": ".",
+  "start_url": "./index.html",
   "scope": ".",
   "display": "standalone",
   "background_color": "#0f172a",

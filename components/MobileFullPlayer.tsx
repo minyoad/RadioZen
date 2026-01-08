@@ -30,7 +30,7 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
   return (
     <div className="fixed inset-0 bg-slate-50 dark:bg-slate-950 z-[60] flex flex-col animate-in slide-in-from-bottom duration-300 transition-colors">
       {/* Header */}
-      <div className="flex items-center justify-between p-6 mt-safe-top">
+      <div className="flex-none flex items-center justify-between p-6 mt-safe-top">
         <button 
           onClick={onClose} 
           className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white p-3 -ml-3 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-all"
@@ -48,10 +48,10 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
         </button>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 flex flex-col px-8 pb-8">
+      {/* Content - Scrollable to prevent clipping on small screens */}
+      <div className="flex-1 flex flex-col px-8 overflow-y-auto scrollbar-hide">
         {/* Cover */}
-        <div className="flex-1 flex items-center justify-center py-4 min-h-0">
+        <div className="flex-shrink-0 flex items-center justify-center py-4">
           <div className="relative w-full aspect-square max-h-[350px] rounded-[2rem] overflow-hidden shadow-2xl shadow-slate-300/60 dark:shadow-violet-900/20 border border-slate-200/60 dark:border-white/5 ring-1 ring-white/20 dark:ring-black/20">
             <img 
               src={station.coverUrl} 
@@ -62,7 +62,7 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
         </div>
 
         {/* Info */}
-        <div className="mt-8 mb-8">
+        <div className="mt-6 mb-6 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="overflow-hidden mr-4">
               <h2 className="text-2xl font-bold text-slate-800 dark:text-white truncate transition-colors leading-tight">{station.name}</h2>
@@ -79,7 +79,7 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
         </div>
 
         {/* Controls */}
-        <div className="mb-8">
+        <div className="mb-6 flex-shrink-0">
            {/* Visual Progress */}
            <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full mb-10 overflow-hidden transition-colors">
               <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 w-full animate-pulse-slow"></div>
@@ -101,18 +101,20 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
            </div>
         </div>
 
-        {/* Volume */}
-        <div className="flex items-center gap-4 px-2 pb-safe-bottom mt-auto">
-            <Volume2 size={20} className="text-slate-400 dark:text-slate-500" />
-            <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={volume}
-                onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-                className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-violet-600 dark:[&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md transition-colors"
-            />
+        {/* Volume - Pushed to bottom */}
+        <div className="mt-auto pb-8 pb-safe-bottom flex-shrink-0">
+            <div className="flex items-center gap-4 px-2">
+                <Volume2 size={20} className="text-slate-400 dark:text-slate-500" />
+                <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={volume}
+                    onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                    className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-violet-600 dark:[&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md transition-colors"
+                />
+            </div>
         </div>
       </div>
     </div>
