@@ -19,6 +19,7 @@ export const STATIONS: Station[] = [
     frequency: 'FM 106.1',
     coverUrl: 'https://picsum.photos/seed/cnr1/400/400',
     streamUrl: 'https://ngcdn001.cnr.cn/live/zgzs/index.m3u8',
+    fallbackStreamUrl: 'https://lhttp.qtfm.cn/live/386/64k.mp3', // MP3 Fallback
     tags: ['央广', '新闻', '综合', '普通话'],
     category: 'news',
     gain: 0.8 // 新闻台通常声音较大，降低增益
@@ -96,6 +97,7 @@ export const STATIONS: Station[] = [
     frequency: 'FM 97.4',
     coverUrl: 'https://picsum.photos/seed/bjmusic/400/400',
     streamUrl: 'https://brtv-radiolive.rbc.cn/alive/fm974.m3u8',
+    fallbackStreamUrl: 'https://lhttp.qtfm.cn/live/391/64k.mp3',
     tags: ['北京', '音乐', '经典'],
     category: 'music'
   },
@@ -106,6 +108,7 @@ export const STATIONS: Station[] = [
     frequency: 'FM 103.9',
     coverUrl: 'https://picsum.photos/seed/bjtraffic/400/400',
     streamUrl: 'https://brtv-radiolive.rbc.cn/alive/fm1039.m3u8',
+    fallbackStreamUrl: 'https://lhttp.qtfm.cn/live/388/64k.mp3',
     tags: ['北京', '交通', '路况'],
     category: 'traffic',
     gain: 0.9

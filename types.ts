@@ -5,9 +5,11 @@ export interface Station {
   frequency?: string;
   coverUrl: string;
   streamUrl: string; // In a real app, this would be the .mp3/.m3u8 stream
+  fallbackStreamUrl?: string; // Backup stream URL (e.g. mp3) if primary fails
   tags: string[];
   category: string;
-  gain?: number; // Volume correction factor (e.g., 0.8 for loud stations, 1.2 for quiet ones)
+  gain?: number; // Volume correction factor (e.g. 0.8 for loud stations, 1.2 for quiet ones)
+  isCustom?: boolean; // Flag for user-added stations
 }
 
 export interface Category {

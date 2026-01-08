@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Hls from 'hls.js';
 import { Sidebar } from './components/Sidebar';
 import { StationCard } from './components/StationCard';
@@ -9,9 +9,10 @@ import { MobileFullPlayer } from './components/MobileFullPlayer';
 import { StationDetail } from './components/StationDetail';
 import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
+import { AddStationModal } from './components/AddStationModal';
 import { STATIONS, CATEGORIES } from './constants';
 import { Station, UserProfile } from './types';
-import { Search, Bell, Menu, Heart, History, X } from 'lucide-react';
+import { Search, Bell, Menu, Heart, History, X, Plus } from 'lucide-react';
 
 const DEFAULT_PROFILE: UserProfile = {
   name: 'Music Lover',
@@ -23,6 +24,25 @@ const DEFAULT_PROFILE: UserProfile = {
   listeningMinutes: 0
 };
 
+// Helper for initial validation
+const validateStation = (station: Station): boolean => {
+  if (!station.streamUrl || typeof station.streamUrl !== 'string') return false;
+  try {
+    // Basic URL structure check
+    const url = new URL(station.streamUrl);
+    if (!['http:', 'https:'].includes(url.protocol)) return false;
+    
+    // Check fallback if exists
+    if (station.fallbackStreamUrl) {
+       new URL(station.fallbackStreamUrl);
+    }
+    return true;
+  } catch (e) {
+    console.warn(`Skipping invalid station URL [${station.name}]:`, station.streamUrl);
+    return false;
+  }
+};
+
 const App: React.FC = () => {
   // State
   const [activeTab, setActiveTab] = useState('discover');
@@ -30,8 +50,29 @@ const App: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
-  const [stations] = useState<Station[]>(STATIONS);
   
+  // Custom Stations State (Persisted)
+  const [customStations, setCustomStations] = useState<Station[]>(() => {
+    try {
+      const saved = localStorage.getItem('customStations');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to load custom stations", e);
+      return [];
+    }
+  });
+
+  // Modal State
+  const [isAddStationModalOpen, setIsAddStationModalOpen] = useState(false);
+
+  // Initialize stations with validation, merging default and custom
+  const stations = useMemo(() => {
+    return [...STATIONS, ...customStations].filter(validateStation);
+  }, [customStations]);
+  
+  // Track unplayable stations (runtime errors)
+  const [unplayableStationIds, setUnplayableStationIds] = useState<Set<string>>(new Set());
+
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('theme');
@@ -75,6 +116,9 @@ const App: React.FC = () => {
     }
   });
 
+  // Fallback state
+  const [useFallback, setUseFallback] = useState(false);
+
   // Refs
   const audioRef = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -96,6 +140,11 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('userProfile', JSON.stringify(userProfile));
   }, [userProfile]);
+
+  // Effect: Save Custom Stations
+  useEffect(() => {
+    localStorage.setItem('customStations', JSON.stringify(customStations));
+  }, [customStations]);
 
   // Effect: Track Listening Time (run every minute if playing)
   useEffect(() => {
@@ -141,7 +190,17 @@ const App: React.FC = () => {
     const audio = audioRef.current;
     if (!audio || !currentStation) return;
 
-    const src = currentStation.streamUrl;
+    // Check if station is already marked as unplayable to prevent repeated failed attempts
+    if (unplayableStationIds.has(currentStation.id)) {
+      setIsPlaying(false);
+      return;
+    }
+
+    // Determine which URL to use (primary or fallback)
+    const src = useFallback && currentStation.fallbackStreamUrl 
+      ? currentStation.fallbackStreamUrl 
+      : currentStation.streamUrl;
+
     const isM3u8 = src.includes('.m3u8') || src.includes('application/x-mpegurl');
 
     // Clean up previous HLS instance
@@ -174,7 +233,6 @@ const App: React.FC = () => {
              playPromise.catch(error => {
                 if (error.name === 'AbortError') return;
                 console.error("HLS Auto-play failed:", error instanceof Error ? error.message : String(error));
-                // Don't set isPlaying(false) here immediately, as it might just be a loading delay
              });
           }
         }
@@ -192,9 +250,23 @@ const App: React.FC = () => {
                 console.log(`Attempting to recover from network error (attempt ${retryCount.current}/3)...`);
                 hls.startLoad();
               } else {
-                console.error("HLS Network error: Max retries reached. Stopping playback.");
-                hls.destroy();
-                setIsPlaying(false);
+                // If we ran out of retries, check if we have a fallback stream
+                if (!useFallback && currentStation.fallbackStreamUrl) {
+                  console.warn("HLS Network error: Max retries reached. Switching to fallback stream...");
+                  setUseFallback(true);
+                  // Changing state triggers the effect again with new URL
+                } else {
+                  console.error("HLS Network error: Max retries reached. Marking station as unplayable.");
+                  hls.destroy();
+                  setIsPlaying(false);
+                  
+                  // Mark as unplayable
+                  setUnplayableStationIds(prev => {
+                      const next = new Set(prev);
+                      next.add(currentStation.id);
+                      return next;
+                  });
+                }
               }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
@@ -205,6 +277,12 @@ const App: React.FC = () => {
               console.error(`HLS Fatal error: ${data.details}`);
               hls.destroy();
               setIsPlaying(false);
+              // Fatal non-network errors usually mean bad stream format or decoding error
+               setUnplayableStationIds(prev => {
+                  const next = new Set(prev);
+                  next.add(currentStation.id);
+                  return next;
+              });
               break;
           }
         } else {
@@ -237,7 +315,7 @@ const App: React.FC = () => {
         hlsRef.current = null;
       }
     };
-  }, [currentStation?.id]); // Only change source if station ID changes
+  }, [currentStation?.id, useFallback, unplayableStationIds]); // Re-run if station changes or fallback state toggles
 
   // Effect: Handle Play/Pause toggling
   useEffect(() => {
@@ -246,10 +324,6 @@ const App: React.FC = () => {
 
     if (isPlaying) {
       if (audio.paused) {
-        // Guard against race condition where isPlaying is true but source hasn't loaded yet.
-        // We only try to play if the audio element has a source assigned.
-        // The initial play of a new station is handled by the source-loading useEffect above.
-        // This block primarily handles resuming from a paused state.
         if (audio.src || (hlsRef.current && audio.src)) {
           const playPromise = audio.play();
           if (playPromise !== undefined) {
@@ -269,6 +343,29 @@ const App: React.FC = () => {
 
 
   // --- Handlers ---
+
+  const handleAddCustomStation = (newStation: Station) => {
+    setCustomStations(prev => [...prev, newStation]);
+    // Automatically add to favorites for easy access
+    setFavorites(prev => [...prev, newStation.id]);
+    // Show user it's done (switch to favorites)
+    setActiveTab('favorites');
+  };
+
+  const handleDeleteCustomStation = (id: string) => {
+    if (window.confirm("确定要删除这个自定义电台吗？")) {
+       setCustomStations(prev => prev.filter(s => s.id !== id));
+       // Also remove from favorites, recent, playlist
+       setFavorites(prev => prev.filter(fid => fid !== id));
+       setRecentStationIds(prev => prev.filter(rid => rid !== id));
+       setPlaylist(prev => prev.filter(s => s.id !== id));
+       
+       if (currentStation?.id === id) {
+           setIsPlaying(false);
+           setCurrentStation(null);
+       }
+    }
+  };
 
   const addToRecent = (station: Station) => {
     setRecentStationIds(prev => {
@@ -292,11 +389,14 @@ const App: React.FC = () => {
   };
 
   const handlePlayStation = (station: Station, context: 'all' | 'playlist' = 'all') => {
+    if (unplayableStationIds.has(station.id)) return; // Prevent playing broken stations
+
     setPlayContext(context);
 
     if (currentStation?.id === station.id) {
       setIsPlaying(!isPlaying);
     } else {
+      setUseFallback(false); // Reset fallback state for new station
       setCurrentStation(station);
       setIsPlaying(true);
       addToRecent(station);
@@ -306,10 +406,14 @@ const App: React.FC = () => {
   const handleNext = () => {
     if (!currentStation) return;
     
-    let listToUse = stations;
+    setUseFallback(false); // Reset fallback state
+
+    let listToUse = stations.filter(s => !unplayableStationIds.has(s.id)); // Skip bad stations
     if (playContext === 'playlist' && playlist.length > 0) {
-      listToUse = playlist;
+      listToUse = playlist.filter(s => !unplayableStationIds.has(s.id));
     }
+
+    if (listToUse.length === 0) return;
 
     const currentIndex = listToUse.findIndex(s => s.id === currentStation.id);
     // If not found (e.g. removed from playlist while playing), default to 0
@@ -324,10 +428,14 @@ const App: React.FC = () => {
   const handlePrev = () => {
     if (!currentStation) return;
 
-    let listToUse = stations;
+    setUseFallback(false); // Reset fallback state
+
+    let listToUse = stations.filter(s => !unplayableStationIds.has(s.id)); // Skip bad stations
     if (playContext === 'playlist' && playlist.length > 0) {
-      listToUse = playlist;
+      listToUse = playlist.filter(s => !unplayableStationIds.has(s.id));
     }
+
+    if (listToUse.length === 0) return;
 
     const currentIndex = listToUse.findIndex(s => s.id === currentStation.id);
     const prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + listToUse.length) % listToUse.length;
@@ -382,6 +490,9 @@ const App: React.FC = () => {
 
   // Derived Data
   const filteredStations = stations.filter(station => {
+    // 0. Filter out unplayable stations from discovery (Active List management)
+    if (unplayableStationIds.has(station.id)) return false;
+
     // 1. Filter by Category
     if (selectedCategory !== 'all' && station.category !== selectedCategory) return false;
 
@@ -427,7 +538,7 @@ const App: React.FC = () => {
         return (
             <>
               {/* Hero / Featured - Hide if searching or filtering by tag */}
-              {!searchQuery && !selectedTag && (
+              {!searchQuery && !selectedTag && stations.length > 0 && !unplayableStationIds.has(stations[0].id) && (
                 <div className="mb-8 p-6 md:p-8 rounded-3xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white relative overflow-hidden shadow-2xl">
                    <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/4 blur-3xl"></div>
                    <div className="relative z-10 max-w-lg">
@@ -485,11 +596,13 @@ const App: React.FC = () => {
                     isPlaying={currentStation?.id === station.id && isPlaying}
                     isCurrent={currentStation?.id === station.id}
                     isFavorite={favorites.includes(station.id)}
+                    isUnplayable={unplayableStationIds.has(station.id)}
                     onPlay={(s) => handlePlayStation(s, 'all')}
                     onClick={handleStationClick}
                     onToggleFavorite={toggleFavorite}
                     onAddToPlaylist={handleAddToPlaylist}
                     onTagClick={handleTagClick}
+                    onDelete={handleDeleteCustomStation}
                   />
                 ))}
                 {filteredStations.length === 0 && (
@@ -515,9 +628,18 @@ const App: React.FC = () => {
       case 'favorites':
         return (
             <div className="pb-10">
-              <h2 className="text-2xl font-bold mb-6 flex items-center gap-2 text-slate-900 dark:text-white">
-                 <Heart className="text-rose-500 fill-rose-500" /> 我的收藏
-              </h2>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                   <Heart className="text-rose-500 fill-rose-500" /> 我的收藏
+                </h2>
+                <button 
+                   onClick={() => setIsAddStationModalOpen(true)}
+                   className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full text-sm font-medium hover:bg-violet-100 dark:hover:bg-violet-900/30 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+                >
+                   <Plus size={16} /> 添加电台
+                </button>
+              </div>
+
               {favoriteStations.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                   {favoriteStations.map(station => (
@@ -527,11 +649,13 @@ const App: React.FC = () => {
                       isPlaying={currentStation?.id === station.id && isPlaying}
                       isCurrent={currentStation?.id === station.id}
                       isFavorite={true}
+                      isUnplayable={unplayableStationIds.has(station.id)}
                       onPlay={(s) => handlePlayStation(s, 'all')}
                       onClick={handleStationClick}
                       onToggleFavorite={toggleFavorite}
                       onAddToPlaylist={handleAddToPlaylist}
                       onTagClick={handleTagClick}
+                      onDelete={handleDeleteCustomStation}
                     />
                   ))}
                 </div>
@@ -541,9 +665,14 @@ const App: React.FC = () => {
                      <Heart size={32} className="opacity-20" />
                    </div>
                    <p className="text-lg">暂无收藏电台</p>
-                   <button onClick={() => setActiveTab('discover')} className="mt-4 px-6 py-2 bg-violet-600/10 text-violet-400 rounded-full text-sm font-medium hover:bg-violet-600/20 transition-colors">
-                       去发现更多
-                   </button>
+                   <div className="flex gap-4 mt-4">
+                      <button onClick={() => setActiveTab('discover')} className="px-6 py-2 bg-violet-600/10 text-violet-400 rounded-full text-sm font-medium hover:bg-violet-600/20 transition-colors">
+                          去发现更多
+                      </button>
+                      <button onClick={() => setIsAddStationModalOpen(true)} className="px-6 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                          手动添加
+                      </button>
+                   </div>
                 </div>
               )}
             </div>
@@ -563,11 +692,13 @@ const App: React.FC = () => {
                       isPlaying={currentStation?.id === station.id && isPlaying}
                       isCurrent={currentStation?.id === station.id}
                       isFavorite={favorites.includes(station.id)}
+                      isUnplayable={unplayableStationIds.has(station.id)}
                       onPlay={(s) => handlePlayStation(s, 'all')}
                       onClick={handleStationClick}
                       onToggleFavorite={toggleFavorite}
                       onAddToPlaylist={handleAddToPlaylist}
                       onTagClick={handleTagClick}
+                      onDelete={handleDeleteCustomStation}
                     />
                   ))}
                 </div>
@@ -615,27 +746,57 @@ const App: React.FC = () => {
         ref={audioRef} 
         onEnded={handleNext} // Auto-play next when stream/track ends (mostly for mp3 files)
         onError={(e) => {
-            // Safe logging: avoid logging the event object directly to prevent circular structure errors
+            // Safe logging
             const target = e.currentTarget;
             console.error("Native Audio Error:", target.error?.code, target.error?.message);
+            
+            // Try fallback if primary fails in native mode
+            if (!useFallback && currentStation?.fallbackStreamUrl && isPlaying) {
+                 console.warn("Native playback failed, attempting switch to fallback stream...");
+                 setUseFallback(true);
+                 return;
+            }
+
+            // Only mark as unplayable if HLS isn't handling it (native mode or fallback failed)
             if (!hlsRef.current) {
                setIsPlaying(false);
+               if (currentStation) {
+                 setUnplayableStationIds(prev => {
+                   const next = new Set(prev);
+                   next.add(currentStation.id);
+                   return next;
+                 });
+               }
             }
         }}
+      />
+
+      <AddStationModal 
+        isOpen={isAddStationModalOpen} 
+        onClose={() => setIsAddStationModalOpen(false)} 
+        onAdd={handleAddCustomStation} 
       />
 
       {/* Mobile Sidebar (Optional/Secondary) */}
       {showMobileSidebar && (
         <div className="fixed inset-0 bg-black/80 z-50 md:hidden" onClick={() => setShowMobileSidebar(false)}>
            <div className="w-64 h-full bg-white dark:bg-slate-900" onClick={e => e.stopPropagation()}>
-             <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} />
+             <Sidebar 
+                activeTab={activeTab} 
+                setActiveTab={handleTabChange} 
+                onAddStation={() => { setIsAddStationModalOpen(true); setShowMobileSidebar(false); }}
+             />
            </div>
         </div>
       )}
       
       {/* Sidebar (Desktop) */}
       <div className="hidden md:block fixed inset-y-0 left-0 z-40">
-        <Sidebar activeTab={activeTab} setActiveTab={handleTabChange} />
+        <Sidebar 
+            activeTab={activeTab} 
+            setActiveTab={handleTabChange} 
+            onAddStation={() => setIsAddStationModalOpen(true)}
+        />
       </div>
 
       {/* Main Content */}
