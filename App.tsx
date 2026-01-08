@@ -488,6 +488,63 @@ const App: React.FC = () => {
     setFavorites(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]);
   };
 
+  // --- Media Session API Integration (Hardware Media Keys & Bluetooth) ---
+  useEffect(() => {
+    if ('mediaSession' in navigator && currentStation) {
+      // 1. Update Metadata (Lock screen / Notification Center)
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentStation.name,
+        artist: currentStation.description || 'RadioZen Online Radio',
+        album: currentStation.category || 'RadioZen',
+        artwork: [
+          { src: currentStation.coverUrl, sizes: '96x96', type: 'image/png' },
+          { src: currentStation.coverUrl, sizes: '128x128', type: 'image/png' },
+          { src: currentStation.coverUrl, sizes: '192x192', type: 'image/png' },
+          { src: currentStation.coverUrl, sizes: '256x256', type: 'image/png' },
+          { src: currentStation.coverUrl, sizes: '384x384', type: 'image/png' },
+          { src: currentStation.coverUrl, sizes: '512x512', type: 'image/png' },
+        ]
+      });
+
+      // 2. Update Playback State
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+
+      // 3. Set Action Handlers
+      // Note: We're using closures here, so these handlers need to be re-bound 
+      // when their dependencies (like handleNext/handlePrev which rely on currentStation/playlist) change.
+      
+      navigator.mediaSession.setActionHandler('play', () => {
+        setIsPlaying(true);
+      });
+
+      navigator.mediaSession.setActionHandler('pause', () => {
+        setIsPlaying(false);
+      });
+
+      navigator.mediaSession.setActionHandler('stop', () => {
+        setIsPlaying(false);
+      });
+
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        handlePrev();
+      });
+
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        handleNext();
+      });
+      
+      // Clear seek handlers as this is live radio
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
+
+      return () => {
+         // Cleanup is mostly handled by re-registering or browser defaults, 
+         // but we can unset if needed when unmounting or changing stations.
+         // navigator.mediaSession.setActionHandler('play', null);
+      };
+    }
+  }, [currentStation, isPlaying, handleNext, handlePrev]);
+
   // Derived Data
   const filteredStations = stations.filter(station => {
     // 0. Filter out unplayable stations from discovery (Active List management)
