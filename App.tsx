@@ -187,11 +187,22 @@ const App: React.FC = () => {
 
   const [useFallback, setUseFallback] = useState(false);
   const [autoHttpsUpgrade, setAutoHttpsUpgrade] = useState(false);
+  const [useCorsProxy, setUseCorsProxy] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const retryCount = useRef(0);
   const fadeIntervalRef = useRef<number | null>(null);
+
+  const CORS_PROXIES = [
+    'https://api.allorigins.win/raw?url=',
+    'https://corsproxy.io/?',
+    'https://api.allorigins.win/raw?url='
+  ];
+
+  const getProxiedUrl = (url: string): string => {
+    return CORS_PROXIES[0] + encodeURIComponent(url);
+  };
 
   const showToast = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
     setToast({ message, type });
@@ -453,12 +464,25 @@ const App: React.FC = () => {
       });
     } else {
       // Native Audio Playback (iOS Safari / MP3)
-      audio.src = finalSrc;
+      setPlaybackStatus('buffering');
+      
+      const finalUrl = useCorsProxy ? getProxiedUrl(finalSrc) : finalSrc;
+      console.log('Playing URL:', finalUrl);
+      
+      audio.src = finalUrl;
       audio.load();
+      
       const playPromise = audio.play();
       if (playPromise !== undefined) {
-         playPromise.then(() => startFadeIn()).catch(error => {
+         playPromise.then(() => {
+           console.log('Audio playback started successfully:', finalUrl);
+           setPlaybackStatus('playing');
+           startFadeIn();
+         }).catch(error => {
             console.error("Playback failed:", error);
+            console.error("Error name:", error.name);
+            console.error("Error message:", error.message);
+            setPlaybackStatus('error');
             // Don't auto-stop here, let user retry or browser events handle 'error'
          });
       }
@@ -529,6 +553,7 @@ const App: React.FC = () => {
       setPlayContext(context);
       setUseFallback(false);
       setAutoHttpsUpgrade(false);
+      setUseCorsProxy(false); // Reset CORS proxy for new station
       setCurrentStation(station);
       setIsPlaying(true);
       setPlaybackStatus('buffering');
@@ -540,6 +565,7 @@ const App: React.FC = () => {
     if (!currentStation) return;
     setUseFallback(false);
     setAutoHttpsUpgrade(false);
+    setUseCorsProxy(false); // Reset CORS proxy
     let listToUse = stations.filter(s => !unplayableStationIds.has(s.id));
     if (playContext === 'playlist' && playlist.length > 0) {
       listToUse = playlist.filter(s => !unplayableStationIds.has(s.id));
@@ -563,6 +589,7 @@ const App: React.FC = () => {
     if (!currentStation) return;
     setUseFallback(false);
     setAutoHttpsUpgrade(false);
+    setUseCorsProxy(false); // Reset CORS proxy
     let listToUse = stations.filter(s => !unplayableStationIds.has(s.id));
     if (playContext === 'playlist' && playlist.length > 0) {
       listToUse = playlist.filter(s => !unplayableStationIds.has(s.id));
@@ -879,28 +906,61 @@ const App: React.FC = () => {
       <audio 
         key={playerKey} 
         ref={audioRef} 
-        onEnded={handleNext} 
+        crossOrigin="anonymous"
+        preload="none"
+        onEnded={handleNext}
+        onCanPlay={() => {
+          console.log('Audio can play');
+          setPlaybackStatus('playing');
+        }}
+        onWaiting={() => {
+          console.log('Audio waiting/buffering');
+          setPlaybackStatus('buffering');
+        }}
+        onStalled={() => {
+          console.log('Audio stalled');
+          setPlaybackStatus('buffering');
+        }}
         onError={(e) => {
             const target = e.currentTarget;
-            setPlaybackStatus('error'); // Immediate feedback
+            console.error('Audio error event:', e);
+            console.error('Audio error code:', target.error?.code);
+            console.error('Audio error message:', target.error?.message);
+            console.error('Current src:', target.src);
+            console.error('Network state:', target.networkState);
+            console.error('Ready state:', target.readyState);
+            
+            setPlaybackStatus('error');
+            
+            // Try CORS proxy if not already using it
+            if (!useCorsProxy && target.error?.code === 4) {
+                console.log('Trying CORS proxy...');
+                showToast('正在尝试使用代理连接...', 'info');
+                setUseCorsProxy(true);
+                return;
+            }
+            
             if (!autoHttpsUpgrade && currentStation?.streamUrl.startsWith('http:') && !useFallback) {
+                console.log('Trying HTTPS upgrade...');
                 showToast('正在尝试切换 HTTPS 连接...', 'info');
                 setAutoHttpsUpgrade(true);
                 return;
             }
+            
             if (!useFallback && currentStation?.fallbackStreamUrl && isPlaying) {
-                 showToast('连接失败，切换至备用线路...', 'info');
-                 setUseFallback(true);
-                 setAutoHttpsUpgrade(false);
-                 return;
+                console.log('Trying fallback stream...');
+                showToast('连接失败，切换至备用线路...', 'info');
+                setUseFallback(true);
+                setAutoHttpsUpgrade(false);
+                return;
             }
             
             // Native Audio Error Handling (Retry Logic)
             if (!hlsRef.current) {
-               setPlaybackStatus('buffering'); // Keep loading while retrying
+               setPlaybackStatus('buffering');
                if (retryCount.current < 2) {
                    retryCount.current++;
-                   // Simple exponential backoff for native retry
+                   console.log(`Retrying playback (attempt ${retryCount.current})...`);
                    setTimeout(() => {
                        if (audioRef.current && isPlaying) {
                            audioRef.current.load();

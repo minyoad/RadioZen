@@ -12,6 +12,8 @@ export interface Station {
   isCustom?: boolean; // Flag for user-added stations
 }
 
+export type PlaybackStatus = 'idle' | 'buffering' | 'playing' | 'error';
+
 export interface Category {
   id: string;
   name: string;
