@@ -31,18 +31,20 @@ export const StationCard: React.FC<StationCardProps> = ({
   onTagClick,
   onDelete
 }) => {
-  const [imgSrc, setImgSrc] = useState(station.coverUrl);
+  // Helper to generate consistent seed-based placeholder
+  const getPlaceholder = (id: string) => `https://picsum.photos/seed/${encodeURIComponent(id)}/400/400`;
 
+  // Initialize with fallback if coverUrl is missing
+  const [imgSrc, setImgSrc] = useState(station.coverUrl || getPlaceholder(station.id));
+
+  // Sync state when station prop changes
   useEffect(() => {
-    if (!station.coverUrl) {
-      setImgSrc(`https://picsum.photos/seed/${station.id}/400/400`);
-    } else {
-      setImgSrc(station.coverUrl);
-    }
+    setImgSrc(station.coverUrl || getPlaceholder(station.id));
   }, [station.coverUrl, station.id]);
 
   const handleImageError = () => {
-    const fallbackUrl = `https://picsum.photos/seed/${station.id}/400/400`;
+    const fallbackUrl = getPlaceholder(station.id);
+    // Prevent infinite loop if fallback also fails
     if (imgSrc !== fallbackUrl) {
       setImgSrc(fallbackUrl);
     }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2, Moon, Bell, Info, ChevronRight, Smartphone, Wifi, Headphones, Sun, Download, Database } from 'lucide-react';
+import { Volume2, Moon, Bell, Info, ChevronRight, Smartphone, Wifi, Headphones, Sun, Download, Database, Globe, RefreshCw, RotateCcw } from 'lucide-react';
 import { Station } from '../types';
 
 interface SettingsViewProps {
@@ -7,9 +7,10 @@ interface SettingsViewProps {
   onToggleTheme?: () => void;
   onNavigate: (tab: string) => void;
   allStations?: Station[];
+  onRefreshData?: () => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggleTheme, onNavigate, allStations = [] }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggleTheme, onNavigate, allStations = [], onRefreshData }) => {
   // Load settings from local storage or default
   const [highQuality, setHighQuality] = useState(() => {
     return localStorage.getItem('setting_highQuality') !== 'false';
@@ -19,6 +20,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggle
   });
   const [dataSaver, setDataSaver] = useState(() => {
     return localStorage.getItem('setting_dataSaver') === 'true';
+  });
+  const [customSourceUrl, setCustomSourceUrl] = useState(() => {
+    return localStorage.getItem('setting_customSourceUrl') || '';
   });
 
   // Persist changes
@@ -33,6 +37,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggle
   useEffect(() => {
     localStorage.setItem('setting_dataSaver', String(dataSaver));
   }, [dataSaver]);
+
+  const handleSourceUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVal = e.target.value;
+    setCustomSourceUrl(newVal);
+    localStorage.setItem('setting_customSourceUrl', newVal);
+  };
+
+  const handleReloadData = () => {
+    // Clear cache and use callback to trigger soft reload in App.tsx
+    localStorage.removeItem('cached_remote_stations');
+    if (onRefreshData) {
+        onRefreshData();
+    }
+  };
+
+  const handleResetSource = () => {
+      setCustomSourceUrl('');
+      localStorage.removeItem('setting_customSourceUrl');
+      localStorage.removeItem('cached_remote_stations');
+      // Trigger soft refresh
+      if (onRefreshData) {
+          onRefreshData();
+      }
+  };
 
   const handleExportData = () => {
     if (allStations.length === 0) {
@@ -104,16 +132,56 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ isDarkMode, onToggle
 
       {/* Section: Data Management */}
       <div className="mb-8">
-        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">数据管理</h3>
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">数据源与备份</h3>
         <div className="bg-white dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
+            
+            {/* Custom Source Input */}
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 mb-3">
+                    <div className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg">
+                        <Globe size={20} />
+                    </div>
+                    <div>
+                        <div className="font-medium text-slate-900 dark:text-white">自定义订阅源</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">输入 JSON 地址以覆盖默认电台列表</div>
+                    </div>
+                </div>
+                <div className="flex gap-2">
+                    <input 
+                        type="text" 
+                        value={customSourceUrl}
+                        onChange={handleSourceUrlChange}
+                        placeholder="https://example.com/stations.json"
+                        className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-900 dark:text-slate-200"
+                    />
+                    <button 
+                       onClick={handleReloadData}
+                       className="px-3 bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 rounded-lg hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
+                       title="保存并刷新"
+                    >
+                        <RefreshCw size={18} />
+                    </button>
+                    {customSourceUrl && (
+                        <button 
+                            onClick={handleResetSource}
+                            className="px-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                            title="恢复默认"
+                        >
+                            <RotateCcw size={18} />
+                        </button>
+                    )}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2">提示: 系统会自动尝试通过代理解决 CORS 问题。</p>
+            </div>
+
             <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                 <div className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg">
                     <Database size={20} />
                 </div>
                 <div>
-                    <div className="font-medium text-slate-900 dark:text-white">导出电台数据 (JSON)</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">下载当前电台列表以供备份或上传至 Gist</div>
+                    <div className="font-medium text-slate-900 dark:text-white">导出电台数据</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">下载当前电台列表以供备份</div>
                 </div>
                 </div>
                 <button 

@@ -25,7 +25,7 @@ const DEFAULT_PROFILE: UserProfile = {
   listeningMinutes: 0
 };
 
-const REMOTE_STATIONS_URL = 'https://iptv-cdn.mybacc.com/list/radio_stations.json';
+const DEFAULT_REMOTE_URL = 'https://iptv-cdn.mybacc.com/list/radio_stations.json';
 
 const validateStation = (station: Station): boolean => {
   if (!station.streamUrl || typeof station.streamUrl !== 'string') return false;
@@ -52,7 +52,8 @@ const App: React.FC = () => {
   // Data Loading State
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [remoteStations, setRemoteStations] = useState<Station[]>([]);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  // Added refresh trigger for soft reloading without window.location.reload()
+  const [fetchError, refreshTrigger, setRefreshTrigger] = useState(0);
   
   // Custom Stations State
   const [customStations, setCustomStations] = useState<Station[]>(() => {
@@ -72,104 +73,113 @@ const App: React.FC = () => {
   useEffect(() => {
     const loadStations = async () => {
       setIsDataLoading(true);
+      
+      // 1. Try to load from Local Cache first for immediate display (only on initial load)
+      const cachedRaw = localStorage.getItem('cached_remote_stations');
+      // Only use cache if this is the initial load (refreshTrigger === 0)
+      if (cachedRaw && refreshTrigger === 0) {
+          try {
+              const parsed = JSON.parse(cachedRaw);
+              setRemoteStations(parsed);
+              // Don't set loading to false yet, we will refresh in background
+          } catch (e) {
+              localStorage.removeItem('cached_remote_stations');
+              setRemoteStations(DEFAULT_STATIONS);
+          }
+      } else if (refreshTrigger === 0) {
+          setRemoteStations(DEFAULT_STATIONS);
+      } else {
+          // If manually refreshing, clear stations momentarily or keep showing old ones?
+          // Keeping old ones avoids flicker, but let's show loading state.
+      }
+
+      // 2. Determine URL (Custom or Default)
+      const customUrl = localStorage.getItem('setting_customSourceUrl');
+      
+      // If user deliberately cleared it, revert to default. 
+      // If they want to use a custom one, they set it.
+      const targetBaseUrl = (customUrl && customUrl.trim() !== '') 
+        ? customUrl.trim() 
+        : DEFAULT_REMOTE_URL;
+
+      // Add cache buster
+      const separator = targetBaseUrl.includes('?') ? '&' : '?';
+      const targetUrl = `${targetBaseUrl}${separator}t=${Date.now()}`;
+
+      const processJson = (json: any) => {
+         if (Array.isArray(json)) {
+            const freshStations: Station[] = json.map((s: any, index: number) => ({
+                id: s.id || `remote-${index}`,
+                name: s.name || 'Unknown Station',
+                description: s.description || '',
+                streamUrl: s.streamUrl,
+                coverUrl: s.coverUrl || `https://picsum.photos/seed/${s.id || index}/400/400`,
+                tags: Array.isArray(s.tags) ? s.tags : [],
+                category: s.category || 'talk',
+                frequency: s.frequency || 'WEB',
+                gain: typeof s.gain === 'number' ? s.gain : 1.0,
+                isCustom: false,
+                fallbackStreamUrl: s.fallbackStreamUrl
+            })).filter(validateStation);
+
+            if (freshStations.length > 0) {
+                setRemoteStations(freshStations);
+                localStorage.setItem('cached_remote_stations', JSON.stringify(freshStations));
+                // If it's a custom URL or we didn't have cache, notify user
+                if ((!cachedRaw || customUrl || refreshTrigger > 0) && refreshTrigger !== -1) {
+                    showToast(customUrl ? '自定义源加载成功' : '电台列表已更新', 'success');
+                }
+            }
+         } else {
+             throw new Error("Invalid JSON format");
+         }
+      };
+
       try {
-        const cachedRaw = localStorage.getItem('cached_remote_stations');
-        if (cachedRaw) {
-            try {
-                const parsed = JSON.parse(cachedRaw);
-                setRemoteStations(parsed);
-                setIsDataLoading(false);
-            } catch (e) {
-                localStorage.removeItem('cached_remote_stations');
-                setRemoteStations(DEFAULT_STATIONS);
-            }
-        } else {
-            setRemoteStations(DEFAULT_STATIONS);
-            setIsDataLoading(false);
-        }
+          // Attempt 1: Direct Fetch
+          try {
+              const response = await fetch(targetUrl, {
+                method: 'GET',
+                credentials: 'omit',
+                headers: { 'Accept': 'application/json' }
+              });
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              const json = await response.json();
+              processJson(json);
+              setIsDataLoading(false);
+              return; // Success, exit
+          } catch (directError) {
+              console.warn("Direct fetch failed, trying proxy...", directError);
+          }
 
-        try {
-            const response = await fetch(REMOTE_STATIONS_URL, {
-                signal: AbortSignal.timeout(15000),
-                headers: {
-                    'Accept': 'application/json',
-                    'Cache-Control': 'no-cache'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const json = await response.json();
-            
-            if (!Array.isArray(json)) {
-                throw new Error('Invalid data format: expected array');
-            }
-            
-            const freshStations: Station[] = json.map((s: any, index: number) => {
-                if (!s.streamUrl) {
-                    console.warn(`Station at index ${index} missing streamUrl, skipping`);
-                    return null;
-                }
-                
-                const station: Station = {
-                    id: s.id || `remote-${index}`,
-                    name: s.name || 'Unknown Station',
-                    description: s.description || '',
-                    streamUrl: s.streamUrl,
-                    coverUrl: s.coverUrl || `https://picsum.photos/seed/${s.id || index}/400/400`,
-                    tags: Array.isArray(s.tags) ? s.tags : [],
-                    category: s.category || 'talk',
-                    frequency: s.frequency || 'WEB',
-                    gain: typeof s.gain === 'number' ? s.gain : 1.0,
-                    isCustom: false,
-                    fallbackStreamUrl: s.fallbackStreamUrl
-                };
-                
-                if (!validateStation(station)) {
-                    console.warn(`Station "${station.name}" failed validation, skipping`);
-                    return null;
-                }
-                
-                return station;
-            }).filter((s): s is Station => s !== null);
-
-            if (freshStations.length === 0) {
-                throw new Error('No valid stations found in response');
-            }
-            
-            setRemoteStations(freshStations);
-            localStorage.setItem('cached_remote_stations', JSON.stringify(freshStations));
-            setFetchError(null);
-            
-            if (!cachedRaw) {
-                showToast(`成功加载 ${freshStations.length} 个电台`, 'success');
-            } else {
-                const diffCount = freshStations.length - (cachedRaw ? JSON.parse(cachedRaw).length : 0);
-                if (diffCount !== 0) {
-                    showToast(`电台列表已更新 (${diffCount > 0 ? '+' : ''}${diffCount})`, 'info');
-                }
-            }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-            console.error('Failed to fetch remote stations:', errorMessage);
-            setFetchError(errorMessage);
-            
-            if (!cachedRaw) {
-                showToast('无法加载电台列表，正在使用默认电台', 'error');
-            } else {
-                showToast('无法更新电台列表，使用缓存数据', 'warning');
-            }
-        }
-      } catch (e) {
-        setRemoteStations(DEFAULT_STATIONS);
-      } finally {
-        setIsDataLoading(false);
+          // Attempt 2: CORS Proxy Fallback (Only if direct failed)
+          // Using allorigins.win as a reliable free proxy
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+          const proxyResponse = await fetch(proxyUrl);
+          if (!proxyResponse.ok) throw new Error(`Proxy HTTP ${proxyResponse.status}`);
+          const proxyJson = await proxyResponse.json();
+          
+          processJson(proxyJson);
+          setIsDataLoading(false);
+          
+      } catch (finalError) {
+          console.error("All fetch attempts failed:", finalError);
+          setIsDataLoading(false);
+          if (customUrl) {
+              showToast('自定义源加载失败，请检查 URL 或格式', 'error');
+          } else if (!cachedRaw) {
+              // Only error if we have NOTHING to show
+              showToast('无法连接服务器，使用离线数据', 'info');
+          }
       }
     };
     loadStations();
-  }, []);
+  }, [refreshTrigger]);
+
+  const handleRefreshData = () => {
+    // Increment trigger to re-run useEffect
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   const stations = useMemo(() => {
     const all = [...remoteStations, ...customStations];
@@ -952,7 +962,8 @@ const App: React.FC = () => {
       case 'profile':
         return <ProfileView profile={userProfile} favoritesCount={favorites.length} onUpdateProfile={setUserProfile} onNavigate={setActiveTab} />;
       case 'settings':
-        return <SettingsView isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(!isDarkMode)} onNavigate={setActiveTab} allStations={stations} />;
+        // Passed the new handleRefreshData callback
+        return <SettingsView isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(!isDarkMode)} onNavigate={setActiveTab} allStations={stations} onRefreshData={handleRefreshData} />;
       case 'about':
         return <AboutView onBack={() => setActiveTab('settings')} />;
       default:
