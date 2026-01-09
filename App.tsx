@@ -25,7 +25,7 @@ const DEFAULT_PROFILE: UserProfile = {
   listeningMinutes: 0
 };
 
-const REMOTE_STATIONS_URL = 'https://gist.githubusercontent.com/minyoad/3fd7fabeb218a7677356af44d21dcb3d/raw/137f6d53ecd7a36dd7ee3a5f4c3ccb5e5f965a3b/radio_stations.json';
+const REMOTE_STATIONS_URL = 'https://gist.githubusercontent.com/minyoad/3fd7fabeb218a7677356af44d21dcb3d/raw/radio_stations.json';
 
 const validateStation = (station: Station): boolean => {
   if (!station.streamUrl || typeof station.streamUrl !== 'string') return false;
@@ -52,6 +52,7 @@ const App: React.FC = () => {
   // Data Loading State
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [remoteStations, setRemoteStations] = useState<Station[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   
   // Custom Stations State
   const [customStations, setCustomStations] = useState<Station[]>(() => {
@@ -88,33 +89,78 @@ const App: React.FC = () => {
         }
 
         try {
-            const response = await fetch(REMOTE_STATIONS_URL);
-            if (response.ok) {
-                const json = await response.json();
-                if (Array.isArray(json)) {
-                    const freshStations: Station[] = json.map((s: any, index: number) => ({
-                        id: s.id || `remote-${index}`,
-                        name: s.name || 'Unknown Station',
-                        description: s.description || '',
-                        streamUrl: s.streamUrl,
-                        coverUrl: s.coverUrl || `https://picsum.photos/seed/${s.id || index}/400/400`,
-                        tags: Array.isArray(s.tags) ? s.tags : [],
-                        category: s.category || 'talk',
-                        frequency: s.frequency || 'WEB',
-                        gain: typeof s.gain === 'number' ? s.gain : 1.0,
-                        isCustom: false,
-                        fallbackStreamUrl: s.fallbackStreamUrl
-                    })).filter(validateStation);
+            const response = await fetch(REMOTE_STATIONS_URL, {
+                signal: AbortSignal.timeout(15000),
+                headers: {
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const json = await response.json();
+            
+            if (!Array.isArray(json)) {
+                throw new Error('Invalid data format: expected array');
+            }
+            
+            const freshStations: Station[] = json.map((s: any, index: number) => {
+                if (!s.streamUrl) {
+                    console.warn(`Station at index ${index} missing streamUrl, skipping`);
+                    return null;
+                }
+                
+                const station: Station = {
+                    id: s.id || `remote-${index}`,
+                    name: s.name || 'Unknown Station',
+                    description: s.description || '',
+                    streamUrl: s.streamUrl,
+                    coverUrl: s.coverUrl || `https://picsum.photos/seed/${s.id || index}/400/400`,
+                    tags: Array.isArray(s.tags) ? s.tags : [],
+                    category: s.category || 'talk',
+                    frequency: s.frequency || 'WEB',
+                    gain: typeof s.gain === 'number' ? s.gain : 1.0,
+                    isCustom: false,
+                    fallbackStreamUrl: s.fallbackStreamUrl
+                };
+                
+                if (!validateStation(station)) {
+                    console.warn(`Station "${station.name}" failed validation, skipping`);
+                    return null;
+                }
+                
+                return station;
+            }).filter((s): s is Station => s !== null);
 
-                    if (freshStations.length > 0) {
-                        setRemoteStations(freshStations);
-                        localStorage.setItem('cached_remote_stations', JSON.stringify(freshStations));
-                        if (!cachedRaw) showToast('电台列表已更新', 'success');
-                    }
+            if (freshStations.length === 0) {
+                throw new Error('No valid stations found in response');
+            }
+            
+            setRemoteStations(freshStations);
+            localStorage.setItem('cached_remote_stations', JSON.stringify(freshStations));
+            setFetchError(null);
+            
+            if (!cachedRaw) {
+                showToast(`成功加载 ${freshStations.length} 个电台`, 'success');
+            } else {
+                const diffCount = freshStations.length - (cachedRaw ? JSON.parse(cachedRaw).length : 0);
+                if (diffCount !== 0) {
+                    showToast(`电台列表已更新 (${diffCount > 0 ? '+' : ''}${diffCount})`, 'info');
                 }
             }
         } catch (err) {
-            console.warn("Network error fetching stations:", err);
+            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+            console.error('Failed to fetch remote stations:', errorMessage);
+            setFetchError(errorMessage);
+            
+            if (!cachedRaw) {
+                showToast('无法加载电台列表，正在使用默认电台', 'error');
+            } else {
+                showToast('无法更新电台列表，使用缓存数据', 'warning');
+            }
         }
       } catch (e) {
         setRemoteStations(DEFAULT_STATIONS);
@@ -735,6 +781,9 @@ const App: React.FC = () => {
         <div className="flex flex-col items-center justify-center h-full text-slate-400">
            <Loader2 className="w-10 h-10 animate-spin mb-4 text-violet-600" />
            <p>正在加载电台列表...</p>
+           {fetchError && (
+             <p className="text-sm text-rose-500 mt-2 max-w-md text-center">{fetchError}</p>
+           )}
         </div>
       );
     }
