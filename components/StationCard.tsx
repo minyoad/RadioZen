@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { Play, Pause, Signal, Heart, ListPlus, AlertTriangle, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import { Station, PlaybackStatus } from '../types';
 
@@ -17,7 +17,7 @@ interface StationCardProps {
   onDelete?: (id: string) => void;
 }
 
-export const StationCard: React.FC<StationCardProps> = ({ 
+export const StationCard = memo<StationCardProps>(({ 
   station, 
   isPlaying, 
   playbackStatus = 'idle',
@@ -31,20 +31,50 @@ export const StationCard: React.FC<StationCardProps> = ({
   onTagClick,
   onDelete
 }) => {
-  // Helper to generate consistent seed-based placeholder
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+
   const getPlaceholder = (id: string) => `https://picsum.photos/seed/${encodeURIComponent(id)}/400/400`;
 
-  // Initialize with fallback if coverUrl is missing
-  const [imgSrc, setImgSrc] = useState(station.coverUrl || getPlaceholder(station.id));
-
-  // Sync state when station prop changes
   useEffect(() => {
-    setImgSrc(station.coverUrl || getPlaceholder(station.id));
+    setIsLoaded(false);
+    setImgSrc(null);
+  }, [station.id]);
+
+  useEffect(() => {
+    const imgElement = imgRef.current;
+    if (!imgElement) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const targetUrl = station.coverUrl || getPlaceholder(station.id);
+            setImgSrc(targetUrl);
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      {
+        rootMargin: '50px',
+        threshold: 0.1
+      }
+    );
+
+    observer.observe(imgElement);
+
+    return () => {
+      observer.disconnect();
+    };
   }, [station.coverUrl, station.id]);
+
+  const handleImageLoad = () => {
+    setIsLoaded(true);
+  };
 
   const handleImageError = () => {
     const fallbackUrl = getPlaceholder(station.id);
-    // Prevent infinite loop if fallback also fails
     if (imgSrc !== fallbackUrl) {
       setImgSrc(fallbackUrl);
     }
@@ -77,11 +107,16 @@ export const StationCard: React.FC<StationCardProps> = ({
     >
       <div className="relative aspect-square rounded-xl overflow-hidden mb-4 shadow-lg flex-shrink-0 bg-slate-100 dark:bg-slate-800">
         <img 
-          src={imgSrc} 
+          ref={imgRef}
+          src={imgSrc || ''}
           onError={handleImageError}
+          onLoad={handleImageLoad}
           alt={station.name} 
-          className={`w-full h-full object-cover transition-transform duration-500 ${isUnplayable ? 'grayscale' : 'group-hover:scale-110'}`}
+          className={`w-full h-full object-cover transition-transform duration-500 ${isUnplayable ? 'grayscale' : 'group-hover:scale-110'} ${!isLoaded ? 'opacity-0' : 'opacity-100'}`}
         />
+        {!isLoaded && (
+          <div className="absolute inset-0 bg-slate-200 dark:bg-slate-700 animate-pulse" />
+        )}
         
         {/* Unplayable Overlay */}
         {isUnplayable && (
@@ -200,4 +235,4 @@ export const StationCard: React.FC<StationCardProps> = ({
       </div>
     </div>
   );
-};
+});

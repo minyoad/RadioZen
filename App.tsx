@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Sidebar } from './components/Sidebar';
 import { StationCard } from './components/StationCard';
@@ -11,6 +11,7 @@ import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { AddStationModal } from './components/AddStationModal';
+import { VirtualStationGrid } from './components/VirtualStationGrid';
 import { DEFAULT_STATIONS, CATEGORIES } from './constants';
 import { Station, UserProfile, PlaybackStatus } from './types';
 import { Search, Bell, Menu, Heart, History, X, Plus, AlertTriangle, Info, Wifi, Loader2 } from 'lucide-react';
@@ -47,6 +48,7 @@ const App: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   
   // Data Loading State
@@ -390,6 +392,14 @@ const App: React.FC = () => {
     if (searchQuery.trim()) {
       setActiveTab('discover');
     }
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
   }, [searchQuery]);
 
   // --- CORE PLAYBACK LOGIC ---
@@ -769,18 +779,20 @@ const App: React.FC = () => {
   }, [currentStation, isPlaying]);
 
   // Derived Data (same as before)
-  const filteredStations = stations.filter(station => {
-    if (unplayableStationIds.has(station.id)) return false;
-    if (selectedCategory !== 'all' && station.category !== selectedCategory) return false;
-    if (selectedTag && !station.tags.includes(selectedTag)) return false;
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      return station.name.toLowerCase().includes(query) || 
-             station.description.toLowerCase().includes(query) || 
-             station.tags.some(tag => tag.toLowerCase().includes(query));
-    }
-    return true;
-  });
+  const filteredStations = useMemo(() => {
+    return stations.filter(station => {
+      if (unplayableStationIds.has(station.id)) return false;
+      if (selectedCategory !== 'all' && station.category !== selectedCategory) return false;
+      if (selectedTag && !station.tags.includes(selectedTag)) return false;
+      if (debouncedSearchQuery.trim()) {
+        const query = debouncedSearchQuery.toLowerCase().trim();
+        return station.name.toLowerCase().includes(query) || 
+               station.description.toLowerCase().includes(query) || 
+               station.tags.some(tag => tag.toLowerCase().includes(query));
+      }
+      return true;
+    });
+  }, [stations, unplayableStationIds, selectedCategory, selectedTag, debouncedSearchQuery]);
 
   const favoriteStations = stations.filter(s => favorites.includes(s.id) && !unplayableStationIds.has(s.id));
   const recentStations = recentStationIds.map(id => stations.find(s => s.id === id)).filter((s): s is Station => !!s && !unplayableStationIds.has(s.id));
@@ -861,15 +873,14 @@ const App: React.FC = () => {
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                {filteredStations.map(station => (
-                  <StationCard
-                    key={station.id}
-                    station={station}
-                    isPlaying={currentStation?.id === station.id && isPlaying}
+                {filteredStations.length > 50 ? (
+                  <VirtualStationGrid
+                    stations={filteredStations}
+                    currentStation={currentStation}
+                    isPlaying={isPlaying}
                     playbackStatus={playbackStatus}
-                    isCurrent={currentStation?.id === station.id}
-                    isFavorite={favorites.includes(station.id)}
-                    isUnplayable={unplayableStationIds.has(station.id)}
+                    favorites={favorites}
+                    unplayableStationIds={unplayableStationIds}
                     onPlay={(s) => handlePlayStation(s, 'all')}
                     onClick={handleStationClick}
                     onToggleFavorite={toggleFavorite}
@@ -877,11 +888,24 @@ const App: React.FC = () => {
                     onTagClick={handleTagClick}
                     onDelete={handleDeleteCustomStation}
                   />
-                ))}
-                {filteredStations.length === 0 && (
-                  <div className="col-span-full py-20 text-center text-slate-500">
-                    <p>没有找到相关电台</p>
-                  </div>
+                ) : (
+                  filteredStations.map(station => (
+                    <StationCard
+                      key={station.id}
+                      station={station}
+                      isPlaying={currentStation?.id === station.id && isPlaying}
+                      playbackStatus={playbackStatus}
+                      isCurrent={currentStation?.id === station.id}
+                      isFavorite={favorites.includes(station.id)}
+                      isUnplayable={unplayableStationIds.has(station.id)}
+                      onPlay={(s) => handlePlayStation(s, 'all')}
+                      onClick={handleStationClick}
+                      onToggleFavorite={toggleFavorite}
+                      onAddToPlaylist={handleAddToPlaylist}
+                      onTagClick={handleTagClick}
+                      onDelete={handleDeleteCustomStation}
+                    />
+                  ))
                 )}
               </div>
             </>
@@ -899,15 +923,14 @@ const App: React.FC = () => {
               </div>
               {favoriteStations.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                  {favoriteStations.map(station => (
-                    <StationCard
-                      key={station.id}
-                      station={station}
-                      isPlaying={currentStation?.id === station.id && isPlaying}
+                  {favoriteStations.length > 50 ? (
+                    <VirtualStationGrid
+                      stations={favoriteStations}
+                      currentStation={currentStation}
+                      isPlaying={isPlaying}
                       playbackStatus={playbackStatus}
-                      isCurrent={currentStation?.id === station.id}
-                      isFavorite={true}
-                      isUnplayable={unplayableStationIds.has(station.id)}
+                      favorites={favorites}
+                      unplayableStationIds={unplayableStationIds}
                       onPlay={(s) => handlePlayStation(s, 'all')}
                       onClick={handleStationClick}
                       onToggleFavorite={toggleFavorite}
@@ -915,7 +938,25 @@ const App: React.FC = () => {
                       onTagClick={handleTagClick}
                       onDelete={handleDeleteCustomStation}
                     />
-                  ))}
+                  ) : (
+                    favoriteStations.map(station => (
+                      <StationCard
+                        key={station.id}
+                        station={station}
+                        isPlaying={currentStation?.id === station.id && isPlaying}
+                        playbackStatus={playbackStatus}
+                        isCurrent={currentStation?.id === station.id}
+                        isFavorite={true}
+                        isUnplayable={unplayableStationIds.has(station.id)}
+                        onPlay={(s) => handlePlayStation(s, 'all')}
+                        onClick={handleStationClick}
+                        onToggleFavorite={toggleFavorite}
+                        onAddToPlaylist={handleAddToPlaylist}
+                        onTagClick={handleTagClick}
+                        onDelete={handleDeleteCustomStation}
+                      />
+                    ))
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-slate-500">
@@ -933,15 +974,14 @@ const App: React.FC = () => {
               </h2>
               {recentStations.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                  {recentStations.map(station => (
-                    <StationCard
-                      key={station.id}
-                      station={station}
-                      isPlaying={currentStation?.id === station.id && isPlaying}
+                  {recentStations.length > 50 ? (
+                    <VirtualStationGrid
+                      stations={recentStations}
+                      currentStation={currentStation}
+                      isPlaying={isPlaying}
                       playbackStatus={playbackStatus}
-                      isCurrent={currentStation?.id === station.id}
-                      isFavorite={favorites.includes(station.id)}
-                      isUnplayable={unplayableStationIds.has(station.id)}
+                      favorites={favorites}
+                      unplayableStationIds={unplayableStationIds}
                       onPlay={(s) => handlePlayStation(s, 'all')}
                       onClick={handleStationClick}
                       onToggleFavorite={toggleFavorite}
@@ -949,7 +989,25 @@ const App: React.FC = () => {
                       onTagClick={handleTagClick}
                       onDelete={handleDeleteCustomStation}
                     />
-                  ))}
+                  ) : (
+                    recentStations.map(station => (
+                      <StationCard
+                        key={station.id}
+                        station={station}
+                        isPlaying={currentStation?.id === station.id && isPlaying}
+                        playbackStatus={playbackStatus}
+                        isCurrent={currentStation?.id === station.id}
+                        isFavorite={favorites.includes(station.id)}
+                        isUnplayable={unplayableStationIds.has(station.id)}
+                        onPlay={(s) => handlePlayStation(s, 'all')}
+                        onClick={handleStationClick}
+                        onToggleFavorite={toggleFavorite}
+                        onAddToPlaylist={handleAddToPlaylist}
+                        onTagClick={handleTagClick}
+                        onDelete={handleDeleteCustomStation}
+                      />
+                    ))
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-slate-500">
@@ -1111,7 +1169,7 @@ const App: React.FC = () => {
                 <div className="relative hidden sm:block">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 w-4 h-4" />
                   <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索电台、节目..." className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full pl-10 pr-8 py-2 text-sm text-slate-900 dark:text-slate-300 focus:outline-none focus:border-violet-500 w-64 transition-all" />
-                  {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900"><X size={14} /></button>}
+                  {searchQuery && <button onClick={() => { setSearchQuery(''); setDebouncedSearchQuery(''); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900"><X size={14} /></button>}
                 </div>
               </div>
               <div className="flex items-center gap-4">
