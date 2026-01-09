@@ -1,8 +1,32 @@
 {
   "rewrites": [
     {
-      "source": "/((?!sw.js|manifest.json|favicon.ico|assets/|.*\\.).*)",
+      "source": "/((?!api/|_next/static|_next/image|favicon.ico|sw.js|manifest.json|assets/|.*\\.).*)",
       "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
     }
   ]
 }
