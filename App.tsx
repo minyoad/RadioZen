@@ -11,9 +11,9 @@ import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { AddStationModal } from './components/AddStationModal';
-import { STATIONS, CATEGORIES } from './constants';
+import { DEFAULT_STATIONS, CATEGORIES } from './constants';
 import { Station, UserProfile } from './types';
-import { Search, Bell, Menu, Heart, History, X, Plus } from 'lucide-react';
+import { Search, Bell, Menu, Heart, History, X, Plus, AlertTriangle, Info, Wifi, Loader2 } from 'lucide-react';
 
 const DEFAULT_PROFILE: UserProfile = {
   name: 'Music Lover',
@@ -24,6 +24,11 @@ const DEFAULT_PROFILE: UserProfile = {
   level: 1,
   listeningMinutes: 0
 };
+
+// URL to your GitHub Gist raw JSON file.
+// For now, this can be a placeholder or a real one you create.
+// Since we are simulating, we will likely fallback to DEFAULT_STATIONS if this 404s.
+const REMOTE_STATIONS_URL = 'https://gist.githubusercontent.com/minyoad/3fd7fabeb218a7677356af44d21dcb3d/raw/137f6d53ecd7a36dd7ee3a5f4c3ccb5e5f965a3b/radio_stations.json';
 
 // Helper for initial validation
 const validateStation = (station: Station): boolean => {
@@ -39,7 +44,7 @@ const validateStation = (station: Station): boolean => {
     }
     return true;
   } catch (e) {
-    console.warn(`Skipping invalid station URL [${station.name}]:`, station.streamUrl);
+    // console.warn(`Skipping invalid station URL [${station.name}]:`, station.streamUrl);
     return false;
   }
 };
@@ -51,6 +56,10 @@ const App: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  
+  // Data Loading State
+  const [isDataLoading, setIsDataLoading] = useState(true);
+  const [remoteStations, setRemoteStations] = useState<Station[]>([]);
   
   // Custom Stations State (Persisted)
   const [customStations, setCustomStations] = useState<Station[]>(() => {
@@ -66,13 +75,105 @@ const App: React.FC = () => {
   // Modal State
   const [isAddStationModalOpen, setIsAddStationModalOpen] = useState(false);
 
-  // Initialize stations with validation, merging default and custom
+  // Toast State
+  const [toast, setToast] = useState<{ message: string; type: 'info' | 'error' | 'success' } | null>(null);
+
+  // Async Data Fetching Logic (JSON)
+  useEffect(() => {
+    const loadStations = async () => {
+      setIsDataLoading(true);
+      try {
+        // 1. Try to load cached remote stations from localStorage to render immediately
+        const cachedRaw = localStorage.getItem('cached_remote_stations');
+        if (cachedRaw) {
+            try {
+                const parsed = JSON.parse(cachedRaw);
+                setRemoteStations(parsed);
+                setIsDataLoading(false); // Immediate render with cache
+            } catch (e) {
+                console.warn("Cached data corrupted, clearing.");
+                localStorage.removeItem('cached_remote_stations');
+                setRemoteStations(DEFAULT_STATIONS);
+            }
+        } else {
+            // If no cache, fallback to defaults immediately while fetching
+            setRemoteStations(DEFAULT_STATIONS);
+            setIsDataLoading(false);
+        }
+
+        // 2. Fetch fresh data in background (JSON format)
+        try {
+            const response = await fetch(REMOTE_STATIONS_URL);
+            if (response.ok) {
+                const json = await response.json();
+                
+                // Basic validation that it is an array
+                if (Array.isArray(json)) {
+                    // Normalize data (ensure IDs exist, etc.)
+                    const freshStations: Station[] = json.map((s: any, index: number) => ({
+                        id: s.id || `remote-${index}`,
+                        name: s.name || 'Unknown Station',
+                        description: s.description || '',
+                        streamUrl: s.streamUrl,
+                        coverUrl: s.coverUrl || `https://picsum.photos/seed/${s.id || index}/400/400`,
+                        tags: Array.isArray(s.tags) ? s.tags : [],
+                        category: s.category || 'talk',
+                        frequency: s.frequency || 'WEB',
+                        gain: typeof s.gain === 'number' ? s.gain : 1.0,
+                        isCustom: false,
+                        fallbackStreamUrl: s.fallbackStreamUrl
+                    })).filter(validateStation);
+
+                    if (freshStations.length > 0) {
+                        setRemoteStations(freshStations);
+                        localStorage.setItem('cached_remote_stations', JSON.stringify(freshStations));
+                        if (!cachedRaw) showToast('电台列表已更新', 'success');
+                    }
+                }
+            } else {
+                console.warn("Remote stations fetch failed (not 200). Using defaults/cache.");
+            }
+        } catch (err) {
+            console.warn("Network error fetching stations (probably offline or CORS):", err);
+            // Fallback is already handled by cache or defaults
+        }
+      } catch (e) {
+        console.error("Critical error loading stations:", e);
+        setRemoteStations(DEFAULT_STATIONS);
+      } finally {
+        setIsDataLoading(false);
+      }
+    };
+
+    loadStations();
+  }, []);
+
+  // Initialize stations with validation, merging remote and custom
   const stations = useMemo(() => {
-    return [...STATIONS, ...customStations].filter(validateStation);
-  }, [customStations]);
+    // Combine remote and custom
+    const all = [...remoteStations, ...customStations];
+    // Filter out invalids
+    return all.filter(validateStation);
+  }, [remoteStations, customStations]);
   
-  // Track unplayable stations (runtime errors)
-  const [unplayableStationIds, setUnplayableStationIds] = useState<Set<string>>(new Set());
+  // Track unplayable stations (runtime errors) - Persisted to avoid showing bad stations on reload
+  const [unplayableStationIds, setUnplayableStationIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('unplayableStations');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch (e) {
+      return new Set();
+    }
+  });
+
+  // Effect: Persist unplayable stations
+  useEffect(() => {
+    try {
+      localStorage.setItem('unplayableStations', JSON.stringify(Array.from(unplayableStationIds)));
+    } catch (e) {
+      console.error("Failed to save unplayable stations", e);
+    }
+  }, [unplayableStationIds]);
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -127,6 +228,11 @@ const App: React.FC = () => {
   const retryCount = useRef(0);
   const fadeIntervalRef = useRef<number | null>(null);
 
+  // --- Helpers ---
+  const showToast = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
+    setToast({ message, type });
+  };
+
   // --- Volume Fading Logic ---
   const clearFade = () => {
     if (fadeIntervalRef.current) {
@@ -145,6 +251,7 @@ const App: React.FC = () => {
     const targetVol = isMuted ? 0 : Math.min(1.0, Math.max(0, volume * stationGain));
 
     // Start from 0 for soft start
+    // Note: On iOS, volume property might be read-only or ignored, so this is best-effort.
     audio.volume = 0;
 
     const duration = 1500; // 1.5s
@@ -188,6 +295,14 @@ const App: React.FC = () => {
       }, stepTime);
     });
   };
+
+  // Effect: Toast Timer
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // Effect: Theme Management
   useEffect(() => {
@@ -244,7 +359,7 @@ const App: React.FC = () => {
         audioRef.current.volume = Math.min(1.0, Math.max(0, effectiveVolume));
       }
     }
-  }, [volume, isMuted]); // Removed currentStation dependency to avoid conflict with fade-in
+  }, [volume, isMuted]);
 
   // Effect: Switch to discover tab when searching
   useEffect(() => {
@@ -261,6 +376,7 @@ const App: React.FC = () => {
     // Check if station is already marked as unplayable to prevent repeated failed attempts
     if (unplayableStationIds.has(currentStation.id)) {
       setIsPlaying(false);
+      showToast('该电台暂时无法播放', 'error');
       return;
     }
 
@@ -324,6 +440,7 @@ const App: React.FC = () => {
               
               if (!autoHttpsUpgrade && src.startsWith('http:')) {
                 console.log('HLS Network Error: Attempting auto-upgrade to HTTPS...');
+                showToast('正在尝试切换 HTTPS 连接...', 'info');
                 setAutoHttpsUpgrade(true);
                 return;
               }
@@ -331,14 +448,21 @@ const App: React.FC = () => {
               if (retryCount.current < 2) {
                 retryCount.current++;
                 console.log(`Attempting to recover from network error (attempt ${retryCount.current}/2)...`);
-                hls.startLoad();
+                showToast(`信号微弱，正在重试 (${retryCount.current}/2)...`, 'info');
+                
+                // Add a small delay before retrying
+                setTimeout(() => {
+                   if (hlsRef.current) hlsRef.current.startLoad();
+                }, 1000 * retryCount.current);
               } else {
                 if (!useFallback && currentStation.fallbackStreamUrl) {
                   console.warn("HLS Network error: Max retries reached. Switching to fallback stream...");
+                  showToast('连接失败，切换至备用线路...', 'info');
                   setUseFallback(true);
                   setAutoHttpsUpgrade(false);
                 } else {
                   console.error("HLS Network error: Max retries reached. Marking station as unplayable.");
+                  showToast('无法连接该电台', 'error');
                   hls.destroy();
                   setIsPlaying(false);
                   
@@ -352,12 +476,14 @@ const App: React.FC = () => {
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               console.warn("HLS Media error, recovering...");
+              showToast('音频解码异常，正在恢复...', 'info');
               hls.recoverMediaError();
               break;
             default:
               console.error(`HLS Fatal error: ${data.details}`);
               hls.destroy();
               setIsPlaying(false);
+              showToast('播放器发生错误', 'error');
                setUnplayableStationIds(prev => {
                   const next = new Set(prev);
                   next.add(currentStation.id);
@@ -369,6 +495,12 @@ const App: React.FC = () => {
       });
     } else {
       // Native Audio (MP3 or Native HLS on Safari)
+      // IMPORTANT for iOS: Completely reset the audio element before setting new src
+      // This prevents the player from getting stuck on the previous buffer
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load(); 
+      
       audio.src = src;
       audio.load();
       if (isPlaying) {
@@ -379,7 +511,8 @@ const App: React.FC = () => {
            }).catch(error => {
               if (error.name === 'AbortError') return;
               console.error("Playback failed:", error instanceof Error ? error.message : String(error));
-              setIsPlaying(false);
+              // Don't auto-stop on first error, user gesture might re-trigger
+              // setIsPlaying(false); 
            });
         }
       }
@@ -427,6 +560,7 @@ const App: React.FC = () => {
     setCustomStations(prev => [...prev, newStation]);
     setFavorites(prev => [...prev, newStation.id]);
     setActiveTab('favorites');
+    showToast('自定义电台已添加', 'success');
   };
 
   const handleDeleteCustomStation = (id: string) => {
@@ -440,6 +574,7 @@ const App: React.FC = () => {
            setIsPlaying(false);
            setCurrentStation(null);
        }
+       showToast('电台已删除', 'success');
     }
   };
 
@@ -464,23 +599,25 @@ const App: React.FC = () => {
     });
   };
 
-  const handlePlayStation = async (station: Station, context: 'all' | 'playlist' = 'all') => {
-    if (unplayableStationIds.has(station.id)) return;
+  // IMPORTANT for iOS: 
+  // We must NOT 'await' anything before setting the state if we want playback to start immediately.
+  // The 'fadeOut' delay (setTimeout) breaks the user gesture token chain on iOS Safari.
+  // We accept a hard cut when switching stations in exchange for reliability.
+  const handlePlayStation = (station: Station, context: 'all' | 'playlist' = 'all') => {
+    if (unplayableStationIds.has(station.id)) {
+        showToast('该电台暂时无法播放', 'error');
+        return;
+    }
 
     if (currentStation?.id === station.id) {
-      // Toggle Play/Pause
+      // Toggle Play/Pause - Here async fadeOut is fine because we are just stopping
       if (isPlaying) {
-         await fadeOut();
-         setIsPlaying(false);
+         fadeOut().then(() => setIsPlaying(false));
       } else {
          setIsPlaying(true);
       }
     } else {
-      // Switch Station
-      if (isPlaying) {
-         await fadeOut();
-      }
-      
+      // Switch Station - Do NOT await fadeOut here to preserve User Gesture for iOS
       setPlayContext(context);
       setUseFallback(false);
       setAutoHttpsUpgrade(false);
@@ -490,7 +627,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleNext = async () => {
+  const handleNext = () => {
     if (!currentStation) return;
     
     setUseFallback(false);
@@ -506,15 +643,14 @@ const App: React.FC = () => {
     const currentIndex = listToUse.findIndex(s => s.id === currentStation.id);
     const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % listToUse.length;
     
-    if (isPlaying) await fadeOut();
-
+    // Immediate switch for iOS reliability
     const nextStation = listToUse[nextIndex];
     setCurrentStation(nextStation);
     setIsPlaying(true);
     addToRecent(nextStation);
   };
 
-  const handlePrev = async () => {
+  const handlePrev = () => {
     if (!currentStation) return;
 
     setUseFallback(false);
@@ -530,8 +666,7 @@ const App: React.FC = () => {
     const currentIndex = listToUse.findIndex(s => s.id === currentStation.id);
     const prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + listToUse.length) % listToUse.length;
     
-    if (isPlaying) await fadeOut();
-
+    // Immediate switch for iOS reliability
     const prevStation = listToUse[prevIndex];
     setCurrentStation(prevStation);
     setIsPlaying(true);
@@ -542,8 +677,10 @@ const App: React.FC = () => {
   const handleAddToPlaylist = (station: Station) => {
     setPlaylist(prev => {
       if (prev.some(s => s.id === station.id)) {
+        showToast('电台已在播放列表中', 'info');
         return prev; 
       }
+      showToast('已添加至播放列表', 'success');
       return [...prev, station];
     });
     setShowPlaylist(true);
@@ -551,6 +688,7 @@ const App: React.FC = () => {
 
   const handleRemoveFromPlaylist = (id: string) => {
     setPlaylist(prev => prev.filter(s => s.id !== id));
+    showToast('已从播放列表移除', 'success');
   };
 
 
@@ -577,7 +715,16 @@ const App: React.FC = () => {
   };
 
   const toggleFavorite = (id: string) => {
-    setFavorites(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]);
+    setFavorites(prev => {
+        const isFav = prev.includes(id);
+        if (isFav) {
+            showToast('已取消收藏', 'info');
+            return prev.filter(pid => pid !== id);
+        } else {
+            showToast('已添加至收藏', 'success');
+            return [...prev, id];
+        }
+    });
   };
 
   // --- Media Session API Integration ---
@@ -613,7 +760,7 @@ const App: React.FC = () => {
       navigator.mediaSession.setActionHandler('seekbackward', null);
       navigator.mediaSession.setActionHandler('seekforward', null);
     }
-  }, [currentStation, isPlaying, handleNext, handlePrev]); // Dependencies updated
+  }, [currentStation, isPlaying, handleNext, handlePrev]);
 
   // Derived Data
   const filteredStations = stations.filter(station => {
@@ -632,13 +779,22 @@ const App: React.FC = () => {
     return true;
   });
 
-  const favoriteStations = stations.filter(s => favorites.includes(s.id));
+  const favoriteStations = stations.filter(s => favorites.includes(s.id) && !unplayableStationIds.has(s.id));
   const recentStations = recentStationIds
     .map(id => stations.find(s => s.id === id))
-    .filter((s): s is Station => !!s);
+    .filter((s): s is Station => !!s && !unplayableStationIds.has(s.id));
 
   // Helper for rendering content based on activeTab
   const renderContent = () => {
+    if (isDataLoading && stations.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-slate-400">
+           <Loader2 className="w-10 h-10 animate-spin mb-4 text-violet-600" />
+           <p>正在加载电台列表...</p>
+        </div>
+      );
+    }
+
     if (detailViewStation) {
       return (
         <StationDetail 
@@ -844,7 +1000,15 @@ const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsView isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(!isDarkMode)} onNavigate={setActiveTab} />;
+        // Pass the stations to SettingsView for export functionality
+        return (
+            <SettingsView 
+                isDarkMode={isDarkMode} 
+                onToggleTheme={() => setIsDarkMode(!isDarkMode)} 
+                onNavigate={setActiveTab}
+                allStations={stations} // PASS DATA FOR EXPORT
+            />
+        );
       case 'about':
         return <AboutView onBack={() => setActiveTab('settings')} />;
       default:
@@ -862,6 +1026,20 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans transition-colors duration-300">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300 border border-white/10 ${
+          toast.type === 'error' ? 'bg-rose-600/90 text-white' : 
+          toast.type === 'success' ? 'bg-emerald-600/90 text-white' :
+          'bg-slate-800/90 text-white'
+        }`}>
+          {toast.type === 'error' ? <AlertTriangle size={18} /> : 
+           toast.type === 'success' ? <Wifi size={18} /> :
+           <Info size={18} />}
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
+
       {/* Hidden Audio Element - Remove src prop as it's handled in useEffect */}
       <audio 
         ref={audioRef} 
@@ -872,12 +1050,14 @@ const App: React.FC = () => {
             
             if (!autoHttpsUpgrade && currentStation?.streamUrl.startsWith('http:') && !useFallback) {
                 console.warn("Native playback failed on HTTP, upgrading to HTTPS...");
+                showToast('正在尝试切换 HTTPS 连接...', 'info');
                 setAutoHttpsUpgrade(true);
                 return;
             }
 
             if (!useFallback && currentStation?.fallbackStreamUrl && isPlaying) {
                  console.warn("Native playback failed, attempting switch to fallback stream...");
+                 showToast('连接失败，切换至备用线路...', 'info');
                  setUseFallback(true);
                  setAutoHttpsUpgrade(false);
                  return;
@@ -885,6 +1065,7 @@ const App: React.FC = () => {
 
             if (!hlsRef.current) {
                setIsPlaying(false);
+               showToast('无法播放该电台', 'error');
                if (currentStation) {
                  setUnplayableStationIds(prev => {
                    const next = new Set(prev);
