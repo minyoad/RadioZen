@@ -1,10 +1,11 @@
 import React from 'react';
-import { ArrowLeft, Play, Pause, Share2, Signal, Radio, ListPlus } from 'lucide-react';
-import { Station } from '../types';
+import { ArrowLeft, Play, Pause, Share2, Signal, Radio, ListPlus, Loader2, AlertCircle } from 'lucide-react';
+import { Station, PlaybackStatus } from '../types';
 
 interface StationDetailProps {
   station: Station;
   isPlaying: boolean;
+  playbackStatus?: PlaybackStatus;
   onTogglePlay: () => void;
   onBack: () => void;
   onAddToPlaylist: (station: Station) => void;
@@ -14,11 +15,51 @@ interface StationDetailProps {
 export const StationDetail: React.FC<StationDetailProps> = ({ 
   station, 
   isPlaying, 
+  playbackStatus = 'idle',
   onTogglePlay, 
-  onBack,
+  onBack, 
   onAddToPlaylist,
   onTagClick
 }) => {
+  const renderPlayButtonContent = () => {
+      if (playbackStatus === 'buffering') {
+          return (
+              <>
+                 <Loader2 className="animate-spin" size={24} strokeWidth={3} /> 正在加载...
+              </>
+          );
+      }
+      if (playbackStatus === 'error') {
+          return (
+              <>
+                 <AlertCircle size={24} /> 播放失败 (重试)
+              </>
+          );
+      }
+      if (isPlaying) {
+          return (
+              <>
+                <Pause fill="currentColor" size={24} /> 暂停播放
+              </>
+          );
+      }
+      return (
+          <>
+            <Play fill="currentColor" size={24} /> 立即播放
+          </>
+      );
+  };
+
+  const buttonClass = () => {
+      if (playbackStatus === 'error') {
+          return "bg-red-500 text-white hover:bg-red-600 border border-red-600 shadow-xl shadow-red-500/20";
+      }
+      if (isPlaying || playbackStatus === 'buffering') {
+          return "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700";
+      }
+      return "bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 shadow-xl shadow-slate-900/10 dark:shadow-white/10";
+  };
+
   return (
     <div className="max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <button 
@@ -41,9 +82,13 @@ export const StationDetail: React.FC<StationDetailProps> = ({
           />
           
           {/* Status Overlay */}
-          <div className={`absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center transition-opacity duration-500 ${isPlaying ? 'opacity-100' : 'opacity-0'}`}>
+          <div className={`absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center transition-opacity duration-500 ${isPlaying || playbackStatus === 'buffering' ? 'opacity-100' : 'opacity-0'}`}>
                <div className="w-24 h-24 bg-violet-600/90 rounded-full flex items-center justify-center animate-pulse shadow-[0_0_40px_rgba(124,58,237,0.5)]">
-                  <Signal size={48} className="text-white" />
+                  {playbackStatus === 'buffering' ? (
+                      <Loader2 size={40} className="text-white animate-spin" strokeWidth={3} />
+                  ) : (
+                      <Signal size={48} className="text-white" />
+                  )}
                </div>
           </div>
         </div>
@@ -83,21 +128,9 @@ export const StationDetail: React.FC<StationDetailProps> = ({
           <div className="flex items-center gap-4 pt-6 border-t border-slate-200 dark:border-slate-800/50 transition-colors">
             <button 
               onClick={onTogglePlay}
-              className={`flex-1 h-16 rounded-full font-bold text-lg flex items-center justify-center gap-3 transition-all transform hover:scale-[1.02] active:scale-[0.98] ${
-                isPlaying 
-                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700' 
-                  : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 shadow-xl shadow-slate-900/10 dark:shadow-white/10'
-              }`}
+              className={`flex-1 h-16 rounded-full font-bold text-lg flex items-center justify-center gap-3 transition-all transform hover:scale-[1.02] active:scale-[0.98] ${buttonClass()}`}
             >
-              {isPlaying ? (
-                <>
-                  <Pause fill="currentColor" size={24} /> 暂停播放
-                </>
-              ) : (
-                <>
-                  <Play fill="currentColor" size={24} /> 立即播放
-                </>
-              )}
+              {renderPlayButtonContent()}
             </button>
             
             <button 

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Signal, Heart, ListPlus, AlertTriangle, Trash2 } from 'lucide-react';
-import { Station } from '../types';
+import { Play, Pause, Signal, Heart, ListPlus, AlertTriangle, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { Station, PlaybackStatus } from '../types';
 
 interface StationCardProps {
   station: Station;
   isPlaying: boolean;
+  playbackStatus?: PlaybackStatus;
   isCurrent: boolean;
   isFavorite: boolean;
   isUnplayable?: boolean;
@@ -19,6 +20,7 @@ interface StationCardProps {
 export const StationCard: React.FC<StationCardProps> = ({ 
   station, 
   isPlaying, 
+  playbackStatus = 'idle',
   isCurrent, 
   isFavorite,
   isUnplayable = false,
@@ -46,6 +48,20 @@ export const StationCard: React.FC<StationCardProps> = ({
     }
   };
 
+  const renderOverlayIcon = () => {
+      if (isCurrent && playbackStatus === 'buffering') {
+          // Changed to text-violet-600 because the button background is white, so white loader was invisible
+          return <Loader2 size={32} className="text-violet-600 animate-spin" strokeWidth={3} />;
+      }
+      if (isCurrent && playbackStatus === 'error') {
+          return <AlertCircle size={32} className="text-red-500" />;
+      }
+      if (isCurrent && isPlaying) {
+          return <Pause size={24} fill="currentColor" />;
+      }
+      return <Play size={24} fill="currentColor" className="ml-1" />;
+  };
+
   return (
     <div 
       onClick={() => !isUnplayable && onClick(station)}
@@ -53,7 +69,9 @@ export const StationCard: React.FC<StationCardProps> = ({
         ${isUnplayable 
           ? 'opacity-60 cursor-not-allowed bg-slate-100 dark:bg-slate-900' 
           : 'hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-xl hover:border-violet-200 dark:hover:border-white/10 cursor-pointer'
-        }`}
+        }
+        ${isCurrent && playbackStatus === 'error' ? 'border-red-200 dark:border-red-900/50' : ''}
+      `}
     >
       <div className="relative aspect-square rounded-xl overflow-hidden mb-4 shadow-lg flex-shrink-0 bg-slate-100 dark:bg-slate-800">
         <img 
@@ -116,33 +134,38 @@ export const StationCard: React.FC<StationCardProps> = ({
         
         {/* Hover Overlay / Active State */}
         {!isUnplayable && (
-          <div className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity duration-300 ${isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <div className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity duration-300 
+            ${isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+          `}>
             <button 
               onClick={(e) => {
                 e.stopPropagation();
                 onPlay(station);
               }}
-              className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-black shadow-xl hover:scale-105 transition-transform"
+              className={`w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-xl hover:scale-105 transition-transform ${isCurrent && playbackStatus === 'error' ? 'text-red-500' : 'text-black'}`}
             >
-              {isCurrent && isPlaying ? (
-                <Pause size={24} fill="currentColor" />
-              ) : (
-                <Play size={24} fill="currentColor" className="ml-1" />
-              )}
+               {renderOverlayIcon()}
             </button>
           </div>
         )}
 
-        {isCurrent && isPlaying && !isUnplayable && (
+        {isCurrent && isPlaying && !isUnplayable && playbackStatus !== 'buffering' && playbackStatus !== 'error' && (
           <div className="absolute bottom-2 right-2 bg-violet-600 text-white text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1 animate-pulse">
             <Signal size={10} />
             LIVE
           </div>
         )}
+        
+        {isCurrent && playbackStatus === 'error' && (
+           <div className="absolute bottom-2 right-2 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
+            <AlertCircle size={10} />
+            ERROR
+          </div> 
+        )}
       </div>
 
       <div className="flex flex-col flex-1">
-        <h3 className={`font-bold text-lg leading-tight truncate ${isCurrent && !isUnplayable ? 'text-violet-600 dark:text-violet-400' : 'text-slate-900 dark:text-white'}`}>
+        <h3 className={`font-bold text-lg leading-tight truncate ${isCurrent && !isUnplayable ? (playbackStatus === 'error' ? 'text-red-600' : 'text-violet-600 dark:text-violet-400') : 'text-slate-900 dark:text-white'}`}>
           {station.name}
         </h3>
         

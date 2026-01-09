@@ -1,10 +1,11 @@
 import React from 'react';
-import { ChevronDown, Play, Pause, SkipBack, SkipForward, Volume2, ListMusic } from 'lucide-react';
-import { Station } from '../types';
+import { ChevronDown, Play, Pause, SkipBack, SkipForward, Volume2, ListMusic, Loader2, AlertCircle } from 'lucide-react';
+import { Station, PlaybackStatus } from '../types';
 
 interface MobileFullPlayerProps {
   station: Station | null;
   isPlaying: boolean;
+  playbackStatus?: PlaybackStatus;
   onTogglePlay: () => void;
   onClose: () => void;
   onNext: () => void;
@@ -17,6 +18,7 @@ interface MobileFullPlayerProps {
 export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
   station,
   isPlaying,
+  playbackStatus = 'idle',
   onTogglePlay,
   onClose,
   onNext,
@@ -26,6 +28,24 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
   onTogglePlaylist
 }) => {
   if (!station) return null;
+
+  const renderPlayButton = () => {
+    if (playbackStatus === 'buffering') {
+      // Use currentColor (inherited from text class) instead of hardcoded white/black
+      return <Loader2 size={40} className="animate-spin" strokeWidth={3} />;
+    }
+    if (playbackStatus === 'error') {
+      return <AlertCircle size={40} />;
+    }
+    if (isPlaying) {
+      return <Pause size={32} fill="currentColor" />;
+    }
+    return <Play size={32} fill="currentColor" className="ml-1" />;
+  };
+
+  const buttonColorClass = playbackStatus === 'error' 
+    ? "bg-red-500 dark:bg-red-500 text-white" 
+    : "bg-slate-900 dark:bg-white text-white dark:text-slate-900";
 
   return (
     <div className="fixed inset-0 bg-slate-50 dark:bg-slate-950 z-[60] flex flex-col animate-in slide-in-from-bottom duration-300 transition-colors">
@@ -38,7 +58,14 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
           <ChevronDown size={28} />
         </button>
         <div className="text-center">
-          <span className="text-[10px] font-bold tracking-widest text-slate-500 dark:text-slate-400 uppercase bg-slate-200/50 dark:bg-slate-800/50 px-3 py-1 rounded-full border border-slate-200/50 dark:border-slate-800">正在播放</span>
+          <span className={`text-[10px] font-bold tracking-widest uppercase px-3 py-1 rounded-full border transition-colors ${
+              playbackStatus === 'buffering' ? 'bg-violet-100 text-violet-600 border-violet-200' :
+              playbackStatus === 'error' ? 'bg-red-100 text-red-600 border-red-200' :
+              'text-slate-500 dark:text-slate-400 bg-slate-200/50 dark:bg-slate-800/50 border-slate-200/50 dark:border-slate-800'
+          }`}>
+             {playbackStatus === 'buffering' ? '正在缓冲...' : 
+              playbackStatus === 'error' ? '播放失败' : '正在播放'}
+          </span>
         </div>
         <button 
           onClick={onTogglePlaylist}
@@ -82,7 +109,7 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
         <div className="mb-6 flex-shrink-0">
            {/* Visual Progress */}
            <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full mb-10 overflow-hidden transition-colors">
-              <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 w-full animate-pulse-slow"></div>
+              <div className={`h-full w-full ${isPlaying ? 'animate-pulse-slow' : ''} ${playbackStatus === 'error' ? 'bg-red-500' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'}`}></div>
            </div>
 
            <div className="flex items-center justify-between px-2">
@@ -91,9 +118,9 @@ export const MobileFullPlayer: React.FC<MobileFullPlayerProps> = ({
               </button>
               <button 
                 onClick={onTogglePlay}
-                className="w-20 h-20 bg-slate-900 dark:bg-white text-white dark:text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-slate-900/20 dark:shadow-white/10 ring-4 ring-slate-100 dark:ring-slate-900"
+                className={`w-20 h-20 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-slate-900/20 dark:shadow-white/10 ring-4 ring-slate-100 dark:ring-slate-900 ${buttonColorClass}`}
               >
-                {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
+                {renderPlayButton()}
               </button>
               <button onClick={onNext} className="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white active:scale-95 transition-all p-3 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800/50">
                 <SkipForward size={32} />

@@ -12,7 +12,7 @@ import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { AddStationModal } from './components/AddStationModal';
 import { DEFAULT_STATIONS, CATEGORIES } from './constants';
-import { Station, UserProfile } from './types';
+import { Station, UserProfile, PlaybackStatus } from './types';
 import { Search, Bell, Menu, Heart, History, X, Plus, AlertTriangle, Info, Wifi, Loader2 } from 'lucide-react';
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -163,6 +163,8 @@ const App: React.FC = () => {
   const [playContext, setPlayContext] = useState<'all' | 'playlist'>('all');
   const [currentStation, setCurrentStation] = useState<Station | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>('idle'); // Detailed status
+
   const [volume, setVolume] = useState(0.7);
   const [isMuted, setIsMuted] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
@@ -302,25 +304,59 @@ const App: React.FC = () => {
   useEffect(() => {
     const audio = audioRef.current;
     
+    // Event Handlers for Status Updates
+    const onWaiting = () => setPlaybackStatus('buffering');
+    const onPlaying = () => setPlaybackStatus('playing');
+    const onPause = () => {
+        // Only set to idle if we aren't recovering or switching
+        if (!isPlaying) setPlaybackStatus('idle');
+    };
+    const onStalled = () => {
+        if (isPlaying) setPlaybackStatus('buffering');
+    };
+    const onError = () => setPlaybackStatus('error');
+    const onCanPlay = () => {
+        // Optional: could set to idle or ready, but 'playing' event is better
+    };
+
+    if (audio) {
+        audio.addEventListener('waiting', onWaiting);
+        audio.addEventListener('playing', onPlaying);
+        audio.addEventListener('pause', onPause);
+        audio.addEventListener('stalled', onStalled);
+        audio.addEventListener('error', onError);
+        audio.addEventListener('canplay', onCanPlay);
+    }
+
     const stopPlayback = () => {
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
       if (audio) {
-        // Just pause, the removal of DOM element via key change handles the rest
         audio.pause();
+        audio.removeEventListener('waiting', onWaiting);
+        audio.removeEventListener('playing', onPlaying);
+        audio.removeEventListener('pause', onPause);
+        audio.removeEventListener('stalled', onStalled);
+        audio.removeEventListener('error', onError);
+        audio.removeEventListener('canplay', onCanPlay);
       }
       clearFade();
     };
 
     if (!isPlaying || !currentStation || !audio) {
+      if (!isPlaying) setPlaybackStatus('idle');
       stopPlayback();
       return;
     }
+    
+    // Start Loading
+    setPlaybackStatus('buffering');
 
     if (unplayableStationIds.has(currentStation.id)) {
       setIsPlaying(false);
+      setPlaybackStatus('error');
       showToast('该电台暂时无法播放', 'error');
       return;
     }
@@ -338,6 +374,9 @@ const App: React.FC = () => {
     const finalSrc = `${src}${separator}t=${Date.now()}`;
 
     const isM3u8 = src.includes('.m3u8') || src.includes('application/x-mpegurl');
+
+    // Reset retry count on new station/play
+    retryCount.current = 0;
 
     if (isM3u8 && Hls.isSupported()) {
       // HLS Playback (Desktop / Android)
@@ -364,6 +403,7 @@ const App: React.FC = () => {
         if (playPromise !== undefined) {
            playPromise.then(() => startFadeIn()).catch(error => {
               console.error("HLS Auto-play failed:", error);
+              setPlaybackStatus('error');
            });
         }
       });
@@ -373,6 +413,7 @@ const App: React.FC = () => {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
               console.error(`HLS Network error: ${data.details}`);
+              setPlaybackStatus('buffering'); // Keep spinning while retrying
               if (!autoHttpsUpgrade && src.startsWith('http:')) {
                 showToast('正在尝试切换 HTTPS 连接...', 'info');
                 setAutoHttpsUpgrade(true);
@@ -392,6 +433,7 @@ const App: React.FC = () => {
                   showToast('无法连接该电台', 'error');
                   hls.destroy();
                   setIsPlaying(false);
+                  setPlaybackStatus('error');
                   setUnplayableStationIds(prev => new Set(prev).add(currentStation.id));
                 }
               }
@@ -402,6 +444,7 @@ const App: React.FC = () => {
             default:
               hls.destroy();
               setIsPlaying(false);
+              setPlaybackStatus('error');
               showToast('播放器发生错误', 'error');
               setUnplayableStationIds(prev => new Set(prev).add(currentStation.id));
               break;
@@ -416,7 +459,7 @@ const App: React.FC = () => {
       if (playPromise !== undefined) {
          playPromise.then(() => startFadeIn()).catch(error => {
             console.error("Playback failed:", error);
-            // Don't auto-stop here, let user retry
+            // Don't auto-stop here, let user retry or browser events handle 'error'
          });
       }
     }
@@ -475,24 +518,20 @@ const App: React.FC = () => {
       if (isPlaying) {
         setIsPlaying(false);
       } else {
-        // RESUME: Increment key to force new audio element (critical for iOS)
+        // RESUME: Increment key to force new audio element
         setPlayerKey(k => k + 1);
-        // Small delay to ensure Audio element is recreated before setting isPlaying
-        setTimeout(() => {
-          setIsPlaying(true);
-        }, 50);
+        setIsPlaying(true);
+        setPlaybackStatus('buffering');
       }
     } else {
-      // SWITCH: Increment key to force new audio element (critical for iOS)
+      // SWITCH: Increment key to force new audio element
       setPlayerKey(k => k + 1);
       setPlayContext(context);
       setUseFallback(false);
       setAutoHttpsUpgrade(false);
       setCurrentStation(station);
-      // Small delay to ensure Audio element is recreated before setting isPlaying
-      setTimeout(() => {
-        setIsPlaying(true);
-      }, 50);
+      setIsPlaying(true);
+      setPlaybackStatus('buffering');
       addToRecent(station);
     }
   };
@@ -515,6 +554,7 @@ const App: React.FC = () => {
         const nextStation = listToUse[nextIndex];
         setCurrentStation(nextStation);
         setIsPlaying(true);
+        setPlaybackStatus('buffering');
         addToRecent(nextStation);
     }, 50);
   };
@@ -537,6 +577,7 @@ const App: React.FC = () => {
         const prevStation = listToUse[prevIndex];
         setCurrentStation(prevStation);
         setIsPlaying(true);
+        setPlaybackStatus('buffering');
         addToRecent(prevStation);
     }, 50);
   };
@@ -607,11 +648,8 @@ const App: React.FC = () => {
       });
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
       navigator.mediaSession.setActionHandler('play', () => {
-          // Force audio element recreation for iOS
           setPlayerKey(k => k + 1);
-          setTimeout(() => {
-            setIsPlaying(true);
-          }, 50);
+          setIsPlaying(true);
       });
       navigator.mediaSession.setActionHandler('pause', () => setIsPlaying(false));
       navigator.mediaSession.setActionHandler('stop', () => setIsPlaying(false));
@@ -652,6 +690,7 @@ const App: React.FC = () => {
         <StationDetail 
           station={detailViewStation} 
           isPlaying={currentStation?.id === detailViewStation.id && isPlaying}
+          playbackStatus={playbackStatus}
           onTogglePlay={() => handlePlayStation(detailViewStation, 'all')}
           onAddToPlaylist={handleAddToPlaylist}
           onBack={handleBackToDiscover}
@@ -714,6 +753,7 @@ const App: React.FC = () => {
                     key={station.id}
                     station={station}
                     isPlaying={currentStation?.id === station.id && isPlaying}
+                    playbackStatus={playbackStatus}
                     isCurrent={currentStation?.id === station.id}
                     isFavorite={favorites.includes(station.id)}
                     isUnplayable={unplayableStationIds.has(station.id)}
@@ -751,6 +791,7 @@ const App: React.FC = () => {
                       key={station.id}
                       station={station}
                       isPlaying={currentStation?.id === station.id && isPlaying}
+                      playbackStatus={playbackStatus}
                       isCurrent={currentStation?.id === station.id}
                       isFavorite={true}
                       isUnplayable={unplayableStationIds.has(station.id)}
@@ -784,6 +825,7 @@ const App: React.FC = () => {
                       key={station.id}
                       station={station}
                       isPlaying={currentStation?.id === station.id && isPlaying}
+                      playbackStatus={playbackStatus}
                       isCurrent={currentStation?.id === station.id}
                       isFavorite={favorites.includes(station.id)}
                       isUnplayable={unplayableStationIds.has(station.id)}
@@ -840,6 +882,7 @@ const App: React.FC = () => {
         onEnded={handleNext} 
         onError={(e) => {
             const target = e.currentTarget;
+            setPlaybackStatus('error'); // Immediate feedback
             if (!autoHttpsUpgrade && currentStation?.streamUrl.startsWith('http:') && !useFallback) {
                 showToast('正在尝试切换 HTTPS 连接...', 'info');
                 setAutoHttpsUpgrade(true);
@@ -851,9 +894,25 @@ const App: React.FC = () => {
                  setAutoHttpsUpgrade(false);
                  return;
             }
+            
+            // Native Audio Error Handling (Retry Logic)
             if (!hlsRef.current) {
+               setPlaybackStatus('buffering'); // Keep loading while retrying
+               if (retryCount.current < 2) {
+                   retryCount.current++;
+                   // Simple exponential backoff for native retry
+                   setTimeout(() => {
+                       if (audioRef.current && isPlaying) {
+                           audioRef.current.load();
+                           audioRef.current.play().catch(e => console.error("Retry play failed", e));
+                       }
+                   }, 1500 * retryCount.current);
+                   return;
+               }
+
                setIsPlaying(false);
-               showToast('无法播放该电台', 'error');
+               setPlaybackStatus('error');
+               showToast('无法播放该电台 (可能受地区或防盗链限制)', 'error');
                if (currentStation) {
                  setUnplayableStationIds(prev => new Set(prev).add(currentStation.id));
                }
@@ -919,11 +978,25 @@ const App: React.FC = () => {
         
         <Playlist isOpen={showPlaylist} onClose={() => setShowPlaylist(false)} playlist={playlist} currentStation={currentStation} onPlay={(s) => handlePlayStation(s, 'playlist')} onRemove={handleRemoveFromPlaylist} onReorder={handleReorderPlaylist} isPlaying={isPlaying} />
         
-        <PlayerBar currentStation={currentStation} isPlaying={isPlaying} onTogglePlay={() => handlePlayStation(currentStation!, playContext)} volume={volume} onVolumeChange={setVolume} isMuted={isMuted} onToggleMute={() => setIsMuted(!isMuted)} onNext={handleNext} onPrev={handlePrev} togglePlaylist={() => setShowPlaylist(!showPlaylist)} showPlaylist={showPlaylist} onOpenFullPlayer={() => setShowFullPlayer(true)} />
+        <PlayerBar 
+            currentStation={currentStation} 
+            isPlaying={isPlaying} 
+            playbackStatus={playbackStatus}
+            onTogglePlay={() => handlePlayStation(currentStation!, playContext)} 
+            volume={volume} 
+            onVolumeChange={setVolume} 
+            isMuted={isMuted} 
+            onToggleMute={() => setIsMuted(!isMuted)} 
+            onNext={handleNext} 
+            onPrev={handlePrev} 
+            togglePlaylist={() => setShowPlaylist(!showPlaylist)} 
+            showPlaylist={showPlaylist} 
+            onOpenFullPlayer={() => setShowFullPlayer(true)} 
+        />
         
         <BottomNav activeTab={activeTab} setActiveTab={handleTabChange} />
 
-        {showFullPlayer && <MobileFullPlayer station={currentStation} isPlaying={isPlaying} onTogglePlay={() => handlePlayStation(currentStation!, playContext)} onClose={() => setShowFullPlayer(false)} onNext={handleNext} onPrev={handlePrev} volume={volume} onVolumeChange={setVolume} onTogglePlaylist={() => setShowPlaylist(!showPlaylist)} />}
+        {showFullPlayer && <MobileFullPlayer station={currentStation} isPlaying={isPlaying} playbackStatus={playbackStatus} onTogglePlay={() => handlePlayStation(currentStation!, playContext)} onClose={() => setShowFullPlayer(false)} onNext={handleNext} onPrev={handlePrev} volume={volume} onVolumeChange={setVolume} onTogglePlaylist={() => setShowPlaylist(!showPlaylist)} />}
       </div>
     </div>
   );
