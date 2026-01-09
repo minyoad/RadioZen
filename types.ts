@@ -4,7 +4,7 @@ export interface Station {
   description: string;
   frequency?: string;
   coverUrl: string;
-  streamUrl: string; // In a real app, this would be the .mp3/.m3u8 stream
+  streamUrl: string; // Can contain multiple URLs separated by #
   fallbackStreamUrl?: string; // Backup stream URL (e.g. mp3) if primary fails
   tags: string[];
   category: string;

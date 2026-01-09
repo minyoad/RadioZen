@@ -188,6 +188,7 @@ const App: React.FC = () => {
   const [useFallback, setUseFallback] = useState(false);
   const [autoHttpsUpgrade, setAutoHttpsUpgrade] = useState(false);
   const [useCorsProxy, setUseCorsProxy] = useState(false);
+  const [currentStreamIndex, setCurrentStreamIndex] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -202,6 +203,30 @@ const App: React.FC = () => {
 
   const getProxiedUrl = (url: string): string => {
     return CORS_PROXIES[0] + encodeURIComponent(url);
+  };
+
+  const parseStreamUrls = (streamUrl: string): string[] => {
+    if (!streamUrl) return [];
+    return streamUrl.split('#').map(url => url.trim()).filter(url => url.length > 0);
+  };
+
+  const getCurrentStreamUrl = (station: Station): string => {
+    const urls = parseStreamUrls(station.streamUrl);
+    const index = Math.min(currentStreamIndex, urls.length - 1);
+    return urls[index] || urls[0];
+  };
+
+  const hasMoreStreams = (station: Station): boolean => {
+    const urls = parseStreamUrls(station.streamUrl);
+    return currentStreamIndex < urls.length - 1;
+  };
+
+  const tryNextStream = (): boolean => {
+    if (currentStation && hasMoreStreams(currentStation)) {
+      setCurrentStreamIndex(prev => prev + 1);
+      return true;
+    }
+    return false;
   };
 
   const showToast = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
@@ -372,9 +397,10 @@ const App: React.FC = () => {
       return;
     }
 
+    // Get current stream URL from multiple sources
     let src = useFallback && currentStation.fallbackStreamUrl 
       ? currentStation.fallbackStreamUrl 
-      : currentStation.streamUrl;
+      : getCurrentStreamUrl(currentStation);
 
     if (autoHttpsUpgrade && src.startsWith('http:')) {
       src = src.replace('http:', 'https:');
@@ -554,6 +580,7 @@ const App: React.FC = () => {
       setUseFallback(false);
       setAutoHttpsUpgrade(false);
       setUseCorsProxy(false); // Reset CORS proxy for new station
+      setCurrentStreamIndex(0); // Reset stream index for new station
       setCurrentStation(station);
       setIsPlaying(true);
       setPlaybackStatus('buffering');
@@ -931,6 +958,13 @@ const App: React.FC = () => {
             console.error('Ready state:', target.readyState);
             
             setPlaybackStatus('error');
+            
+            // Try next stream source if available
+            if (tryNextStream()) {
+                console.log('Trying next stream source...');
+                showToast('正在切换播放源...', 'info');
+                return;
+            }
             
             // Try CORS proxy if not already using it
             if (!useCorsProxy && target.error?.code === 4) {
