@@ -64,7 +64,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
     // Desktop: fixed bottom-0, height 24 (96px)
     <div 
       className="fixed z-40 left-0 right-0 
-        bottom-16 h-16 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 md:bottom-0 md:h-24 md:bg-white/95 md:dark:bg-slate-900/95 md:backdrop-blur-md 
+        bottom-16 h-16 pb-safe-bottom bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 md:bottom-0 md:h-24 md:pb-0 md:bg-white/95 md:dark:bg-slate-900/95 md:backdrop-blur-md 
         transition-all duration-300"
       onClick={() => window.innerWidth < 768 && onOpenFullPlayer?.()}
     >

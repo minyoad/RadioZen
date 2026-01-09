@@ -1029,7 +1029,7 @@ const App: React.FC = () => {
       </div>
 
       <div className="flex-1 flex flex-col h-full overflow-hidden relative md:pl-64">
-        <header className="flex items-center justify-between px-4 md:px-6 py-4 bg-white/80 dark:bg-slate-950/50 backdrop-blur-sm z-10 sticky top-0 transition-colors">
+        <header className="flex items-center justify-between px-4 md:px-6 py-4 pt-safe-top bg-white/80 dark:bg-slate-950/50 backdrop-blur-sm z-10 sticky top-0 transition-colors">
           {isMobileSearchOpen ? (
             <div className="flex items-center w-full gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
                <div className="relative flex-1">
