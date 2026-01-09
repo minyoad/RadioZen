@@ -610,9 +610,9 @@ const App: React.FC = () => {
     }
 
     if (currentStation?.id === station.id) {
-      // Toggle Play/Pause - Here async fadeOut is fine because we are just stopping
+      // Toggle Play/Pause - Use immediate state update for iOS responsiveness
       if (isPlaying) {
-         fadeOut().then(() => setIsPlaying(false));
+         setIsPlaying(false);
       } else {
          setIsPlaying(true);
       }
@@ -747,14 +747,8 @@ const App: React.FC = () => {
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
 
       navigator.mediaSession.setActionHandler('play', () => setIsPlaying(true));
-      navigator.mediaSession.setActionHandler('pause', async () => {
-          await fadeOut();
-          setIsPlaying(false);
-      });
-      navigator.mediaSession.setActionHandler('stop', async () => {
-          await fadeOut();
-          setIsPlaying(false);
-      });
+      navigator.mediaSession.setActionHandler('pause', () => setIsPlaying(false));
+      navigator.mediaSession.setActionHandler('stop', () => setIsPlaying(false));
       navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
       navigator.mediaSession.setActionHandler('nexttrack', handleNext);
       navigator.mediaSession.setActionHandler('seekbackward', null);
