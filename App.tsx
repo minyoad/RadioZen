@@ -25,7 +25,7 @@ const DEFAULT_PROFILE: UserProfile = {
   listeningMinutes: 0
 };
 
-const REMOTE_STATIONS_URL = 'https://gist.githubusercontent.com/minyoad/3fd7fabeb218a7677356af44d21dcb3d/raw/radio_stations.json';
+const REMOTE_STATIONS_URL = 'https://iptv-cdn.mybacc.com/list/radio_stations.json';
 
 const validateStation = (station: Station): boolean => {
   if (!station.streamUrl || typeof station.streamUrl !== 'string') return false;
