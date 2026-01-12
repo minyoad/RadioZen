@@ -873,7 +873,7 @@ const App: React.FC = () => {
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                {filteredStations.length > 50 ? (
+                {filteredStations.length > 20 ? (
                   <VirtualStationGrid
                     stations={filteredStations}
                     currentStation={currentStation}
@@ -923,7 +923,7 @@ const App: React.FC = () => {
               </div>
               {favoriteStations.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                  {favoriteStations.length > 50 ? (
+                  {favoriteStations.length > 20 ? (
                     <VirtualStationGrid
                       stations={favoriteStations}
                       currentStation={currentStation}
@@ -974,7 +974,7 @@ const App: React.FC = () => {
               </h2>
               {recentStations.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                  {recentStations.length > 50 ? (
+                  {recentStations.length > 20 ? (
                     <VirtualStationGrid
                       stations={recentStations}
                       currentStation={currentStation}

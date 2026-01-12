@@ -106,14 +106,16 @@ export const StationCard = memo<StationCardProps>(({
       `}
     >
       <div className="relative aspect-square rounded-xl overflow-hidden mb-4 shadow-lg flex-shrink-0 bg-slate-100 dark:bg-slate-800">
-        <img 
-          ref={imgRef}
-          src={imgSrc || ''}
-          onError={handleImageError}
-          onLoad={handleImageLoad}
-          alt={station.name} 
-          className={`w-full h-full object-cover transition-transform duration-500 ${isUnplayable ? 'grayscale' : 'group-hover:scale-110'} ${!isLoaded ? 'opacity-0' : 'opacity-100'}`}
-        />
+        {imgSrc && (
+          <img 
+            ref={imgRef}
+            src={imgSrc}
+            onError={handleImageError}
+            onLoad={handleImageLoad}
+            alt={station.name} 
+            className={`w-full h-full object-cover transition-transform duration-500 ${isUnplayable ? 'grayscale' : 'group-hover:scale-110'} ${!isLoaded ? 'opacity-0' : 'opacity-100'}`}
+          />
+        )}
         {!isLoaded && (
           <div className="absolute inset-0 bg-slate-200 dark:bg-slate-700 animate-pulse" />
         )}

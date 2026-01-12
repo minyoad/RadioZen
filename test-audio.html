@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Stream Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        button {
+            background: #7c3aed;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #6d28d9;
+        }
+        .log {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #334155;
+        }
+        .log-entry.error {
+            color: #f87171;
+        }
+        .log-entry.success {
+            color: #4ade80;
+        }
+        .log-entry.info {
+            color: #60a5fa;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.playing {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .status.buffering {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+    </style>
+</head>
+<body>
+    <h1>音频流测试工具</h1>
+    
+    <div class="test-container">
+        <h2>测试URL</h2>
+        <input type="text" id="streamUrl" value="https://lhttp.qingting.fm/live/5021731/64k.mp3" placeholder="输入音频流URL">
+        <button onclick="testStream()">测试播放</button>
+        <button onclick="testStreamNoCors()">测试播放(无CORS)</button>
+        <button onclick="testStreamWithProxy()">测试播放(代理)</button>
+        <button onclick="stopStream()">停止</button>
+        <button onclick="clearLog()">清空日志</button>
+        <button onclick="checkUrl()">检查URL响应</button>
+        
+        <div id="status" class="status">准备就绪</div>
+        
+        <audio id="audioPlayer" crossOrigin="anonymous" preload="none"></audio>
+    </div>
+    
+    <div class="test-container">
+        <h2>日志</h2>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        const audioPlayer = document.getElementById('audioPlayer');
+        const logContainer = document.getElementById('log');
+        const statusDiv = document.getElementById('status');
+        const streamUrlInput = document.getElementById('streamUrl');
+
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(message);
+        }
+
+        function updateStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        function clearLog() {
+            logContainer.innerHTML = '';
+        }
+
+        function testStream() {
+            const url = streamUrlInput.value.trim();
+            if (!url) {
+                log('请输入URL', 'error');
+                return;
+            }
+
+            log(`开始测试: ${url}`, 'info');
+            updateStatus('正在加载...', 'buffering');
+
+            audioPlayer.crossOrigin = 'anonymous';
+            audioPlayer.src = url;
+            
+            audioPlayer.load();
+            
+            const playPromise = audioPlayer.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    log('播放成功启动', 'success');
+                    updateStatus('正在播放', 'playing');
+                }).catch(error => {
+                    log(`播放失败: ${error.name} - ${error.message}`, 'error');
+                    log(`错误堆栈: ${error.stack}`, 'error');
+                    updateStatus('播放失败', 'error');
+                });
+            }
+        }
+
+        function testStreamNoCors() {
+            const url = streamUrlInput.value.trim();
+            if (!url) {
+                log('请输入URL', 'error');
+                return;
+            }
+
+            log(`开始测试(无CORS): ${url}`, 'info');
+            updateStatus('正在加载...', 'buffering');
+
+            audioPlayer.removeAttribute('crossOrigin');
+            audioPlayer.src = url;
+            
+            audioPlayer.load();
+            
+            const playPromise = audioPlayer.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    log('播放成功启动', 'success');
+                    updateStatus('正在播放', 'playing');
+                }).catch(error => {
+                    log(`播放失败: ${error.name} - ${error.message}`, 'error');
+                    log(`错误堆栈: ${error.stack}`, 'error');
+                    updateStatus('播放失败', 'error');
+                });
+            }
+        }
+
+        function testStreamWithProxy() {
+            const url = streamUrlInput.value.trim();
+            if (!url) {
+                log('请输入URL', 'error');
+                return;
+            }
+
+            log(`尝试使用CORS代理: ${url}`, 'info');
+            updateStatus('正在加载...', 'buffering');
+
+            const corsProxies = [
+                'https://corsproxy.io/?',
+                'https://api.allorigins.win/raw?url=',
+                'https://cors-anywhere.herokuapp.com/'
+            ];
+
+            let proxyIndex = 0;
+            
+            function tryProxy() {
+                if (proxyIndex >= corsProxies.length) {
+                    log('所有代理都失败了', 'error');
+                    updateStatus('播放失败', 'error');
+                    return;
+                }
+
+                const proxyUrl = corsProxies[proxyIndex];
+                const finalUrl = proxyUrl + encodeURIComponent(url);
+                
+                log(`尝试代理 ${proxyIndex + 1}/${corsProxies.length}: ${proxyUrl}`, 'info');
+                
+                audioPlayer.crossOrigin = 'anonymous';
+                audioPlayer.src = finalUrl;
+                audioPlayer.load();
+                
+                const playPromise = audioPlayer.play();
+                
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        log(`播放成功启动 (使用代理 ${proxyIndex + 1})`, 'success');
+                        updateStatus('正在播放', 'playing');
+                    }).catch(error => {
+                        log(`代理 ${proxyIndex + 1} 失败: ${error.name} - ${error.message}`, 'error');
+                        proxyIndex++;
+                        setTimeout(tryProxy, 1000);
+                    });
+                }
+            }
+            
+            tryProxy();
+        }
+
+        function stopStream() {
+            audioPlayer.pause();
+            audioPlayer.src = '';
+            log('已停止播放', 'info');
+            updateStatus('已停止', '');
+        }
+
+        async function checkUrl() {
+            const url = streamUrlInput.value.trim();
+            if (!url) {
+                log('请输入URL', 'error');
+                return;
+            }
+
+            log(`检查URL: ${url}`, 'info');
+            updateStatus('正在检查...', 'buffering');
+
+            try {
+                const response = await fetch(url, {
+                    method: 'HEAD',
+                    mode: 'cors',
+                    cache: 'no-cache'
+                });
+
+                log(`HTTP状态码: ${response.status} ${response.statusText}`, 'info');
+                
+                const headers = {};
+                response.headers.forEach((value, key) => {
+                    headers[key] = value;
+                });
+                
+                log('响应头:', 'info');
+                for (const [key, value] of Object.entries(headers)) {
+                    log(`  ${key}: ${value}`, 'info');
+                }
+
+                if (response.status === 200) {
+                    log('URL可访问', 'success');
+                } else {
+                    log(`URL返回错误状态: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`检查失败: ${error.message}`, 'error');
+                
+                if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    log('可能的原因:', 'error');
+                    log('1. CORS限制 - 服务器不允许跨域请求', 'error');
+                    log('2. 网络连接问题', 'error');
+                    log('3. URL不存在或已失效', 'error');
+                }
+            }
+            
+            updateStatus('检查完成', '');
+        }
+
+        // Audio event listeners
+        audioPlayer.addEventListener('loadstart', () => {
+            log('loadstart: 开始加载', 'info');
+        });
+
+        audioPlayer.addEventListener('loadedmetadata', () => {
+            log(`loadedmetadata: 元数据已加载, 时长: ${audioPlayer.duration}`, 'success');
+        });
+
+        audioPlayer.addEventListener('canplay', () => {
+            log('canplay: 可以开始播放', 'success');
+            updateStatus('准备就绪', 'playing');
+        });
+
+        audioPlayer.addEventListener('playing', () => {
+            log('playing: 正在播放', 'success');
+            updateStatus('正在播放', 'playing');
+        });
+
+        audioPlayer.addEventListener('waiting', () => {
+            log('waiting: 等待数据', 'info');
+            updateStatus('缓冲中...', 'buffering');
+        });
+
+        audioPlayer.addEventListener('stalled', () => {
+            log('stalled: 播放停滞', 'info');
+            updateStatus('播放停滞', 'buffering');
+        });
+
+        audioPlayer.addEventListener('error', (e) => {
+            const target = e.currentTarget;
+            const error = target.error;
+            log(`error: 错误代码 ${error?.code} - ${error?.message}`, 'error');
+            
+            const errorMessages = {
+                1: 'MEDIA_ERR_ABORTED - 用户中止',
+                2: 'MEDIA_ERR_NETWORK - 网络错误',
+                3: 'MEDIA_ERR_DECODE - 解码错误',
+                4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - 不支持的源格式'
+            };
+            
+            if (error && errorMessages[error.code]) {
+                log(`详细错误: ${errorMessages[error.code]}`, 'error');
+            }
+            
+            log(`网络状态: ${target.networkState}`, 'info');
+            log(`就绪状态: ${target.readyState}`, 'info');
+            log(`当前URL: ${target.src}`, 'info');
+            
+            updateStatus('播放错误', 'error');
+        });
+
+        audioPlayer.addEventListener('ended', () => {
+            log('ended: 播放结束', 'info');
+            updateStatus('播放结束', '');
+        });
+
+        audioPlayer.addEventListener('progress', () => {
+            if (audioPlayer.buffered.length > 0) {
+                const buffered = audioPlayer.buffered.end(0);
+                log(`progress: 已缓冲 ${buffered.toFixed(2)}秒`, 'info');
+            }
+        });
+
+        audioPlayer.addEventListener('timeupdate', () => {
+            // Only log occasionally to avoid spam
+            if (Math.floor(audioPlayer.currentTime) % 5 === 0) {
+                log(`timeupdate: 当前时间 ${audioPlayer.currentTime.toFixed(2)}秒`, 'info');
+            }
+        });
+
+        log('测试工具已就绪', 'success');
+    </script>
+</body>
+</html>

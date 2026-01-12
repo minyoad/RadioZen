@@ -18,7 +18,10 @@ interface VirtualStationGridProps {
   onDelete?: (id: string) => void;
 }
 
-interface CellData {
+interface CellProps {
+  columnIndex: number;
+  rowIndex: number;
+  style: React.CSSProperties;
   stations: Station[];
   currentStation: Station | null;
   isPlaying: boolean;
@@ -33,6 +36,51 @@ interface CellData {
   onDelete?: (id: string) => void;
   columnCount: number;
 }
+
+const Cell: React.FC<CellProps> = React.memo(({
+  columnIndex,
+  rowIndex,
+  style,
+  stations,
+  currentStation,
+  isPlaying,
+  playbackStatus,
+  favorites,
+  unplayableStationIds,
+  onPlay,
+  onClick,
+  onToggleFavorite,
+  onAddToPlaylist,
+  onTagClick,
+  onDelete,
+  columnCount
+}) => {
+  const index = rowIndex * columnCount + columnIndex;
+  const station = stations[index];
+
+  if (!station) return null;
+
+  return (
+    <div style={style} className="p-2">
+      <StationCard
+        station={station}
+        isPlaying={currentStation?.id === station.id && isPlaying}
+        playbackStatus={playbackStatus}
+        isCurrent={currentStation?.id === station.id}
+        isFavorite={favorites.includes(station.id)}
+        isUnplayable={unplayableStationIds.has(station.id)}
+        onPlay={onPlay}
+        onClick={onClick}
+        onToggleFavorite={onToggleFavorite}
+        onAddToPlaylist={onAddToPlaylist}
+        onTagClick={onTagClick}
+        onDelete={onDelete}
+      />
+    </div>
+  );
+});
+
+Cell.displayName = 'VirtualGridCell';
 
 export const VirtualStationGrid: React.FC<VirtualStationGridProps> = ({
   stations,
@@ -50,21 +98,20 @@ export const VirtualStationGrid: React.FC<VirtualStationGridProps> = ({
 }) => {
   const [containerWidth, setContainerWidth] = useState(0);
 
-  const getColumnCount = () => {
-    if (containerWidth === 0) return 1;
-    if (containerWidth < 640) return 1;
-    if (containerWidth < 1024) return 2;
-    if (containerWidth < 1280) return 3;
+  const getColumnCount = (width: number) => {
+    if (width < 640) return 1;
+    if (width < 1024) return 2;
+    if (width < 1280) return 3;
     return 4;
   };
 
-  const [columnCount, setColumnCount] = useState(getColumnCount());
+  const [columnCount, setColumnCount] = useState(1);
 
   useEffect(() => {
     const updateWidth = () => {
       const width = window.innerWidth;
       setContainerWidth(width);
-      setColumnCount(getColumnCount());
+      setColumnCount(getColumnCount(width));
     };
 
     updateWidth();
@@ -74,7 +121,7 @@ export const VirtualStationGrid: React.FC<VirtualStationGridProps> = ({
 
   const rowCount = Math.ceil(stations.length / columnCount);
 
-  const cellData: CellData = useMemo(() => ({
+  const cellProps = useMemo(() => ({
     stations,
     currentStation,
     isPlaying,
@@ -104,40 +151,12 @@ export const VirtualStationGrid: React.FC<VirtualStationGridProps> = ({
     columnCount
   ]);
 
-  const getColumnWidth = () => {
-    if (containerWidth < 640) return containerWidth - 32;
-    if (containerWidth < 1024) return (containerWidth - 64) / 2;
-    if (containerWidth < 1280) return (containerWidth - 64) / 3;
-    return (containerWidth - 64) / 4;
+  const getColumnWidth = (width: number) => {
+    if (width < 640) return width - 32;
+    if (width < 1024) return (width - 64) / 2;
+    if (width < 1280) return (width - 64) / 3;
+    return (width - 64) / 4;
   };
-
-  const Cell = React.memo(({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
-    const index = rowIndex * columnCount + columnIndex;
-    const station = stations[index];
-
-    if (!station) return null;
-
-    return (
-      <div style={style} className="p-2">
-        <StationCard
-          station={station}
-          isPlaying={currentStation?.id === station.id && isPlaying}
-          playbackStatus={playbackStatus}
-          isCurrent={currentStation?.id === station.id}
-          isFavorite={favorites.includes(station.id)}
-          isUnplayable={unplayableStationIds.has(station.id)}
-          onPlay={onPlay}
-          onClick={onClick}
-          onToggleFavorite={onToggleFavorite}
-          onAddToPlaylist={onAddToPlaylist}
-          onTagClick={onTagClick}
-          onDelete={onDelete}
-        />
-      </div>
-    );
-  });
-
-  Cell.displayName = 'VirtualGridCell';
 
   if (stations.length === 0) {
     return (
@@ -150,9 +169,9 @@ export const VirtualStationGrid: React.FC<VirtualStationGridProps> = ({
   return (
     <Grid
       cellComponent={Cell}
-      cellProps={cellData}
+      cellProps={cellProps}
       columnCount={columnCount}
-      columnWidth={getColumnWidth()}
+      columnWidth={getColumnWidth(containerWidth)}
       rowCount={rowCount}
       rowHeight={420}
       height={Math.min(window.innerHeight - 300, rowCount * 420)}
