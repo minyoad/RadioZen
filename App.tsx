@@ -50,6 +50,14 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
   
   // Data Loading State
   const [isDataLoading, setIsDataLoading] = useState(true);
@@ -872,24 +880,24 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-                {filteredStations.length > 20 ? (
-                  <VirtualStationGrid
-                    stations={filteredStations}
-                    currentStation={currentStation}
-                    isPlaying={isPlaying}
-                    playbackStatus={playbackStatus}
-                    favorites={favorites}
-                    unplayableStationIds={unplayableStationIds}
-                    onPlay={(s) => handlePlayStation(s, 'all')}
-                    onClick={handleStationClick}
-                    onToggleFavorite={toggleFavorite}
-                    onAddToPlaylist={handleAddToPlaylist}
-                    onTagClick={handleTagClick}
-                    onDelete={handleDeleteCustomStation}
-                  />
-                ) : (
-                  filteredStations.map(station => (
+              {filteredStations.length > 20 ? (
+                <VirtualStationGrid
+                  stations={filteredStations}
+                  currentStation={currentStation}
+                  isPlaying={isPlaying}
+                  playbackStatus={playbackStatus}
+                  favorites={favorites}
+                  unplayableStationIds={unplayableStationIds}
+                  onPlay={(s) => handlePlayStation(s, 'all')}
+                  onClick={handleStationClick}
+                  onToggleFavorite={toggleFavorite}
+                  onAddToPlaylist={handleAddToPlaylist}
+                  onTagClick={handleTagClick}
+                  onDelete={handleDeleteCustomStation}
+                />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+                  {filteredStations.map(station => (
                     <StationCard
                       key={station.id}
                       station={station}
@@ -905,9 +913,9 @@ const App: React.FC = () => {
                       onTagClick={handleTagClick}
                       onDelete={handleDeleteCustomStation}
                     />
-                  ))
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </>
         );
       case 'favorites':

@@ -34,46 +34,24 @@ export const StationCard = memo<StationCardProps>(({
   const imgRef = useRef<HTMLImageElement>(null);
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isError, setIsError] = useState(false);
 
   const getPlaceholder = (id: string) => `https://picsum.photos/seed/${encodeURIComponent(id)}/400/400`;
 
   useEffect(() => {
     setIsLoaded(false);
-    setImgSrc(null);
-  }, [station.id]);
-
-  useEffect(() => {
-    const imgElement = imgRef.current;
-    if (!imgElement) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const targetUrl = station.coverUrl || getPlaceholder(station.id);
-            setImgSrc(targetUrl);
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      {
-        rootMargin: '50px',
-        threshold: 0.1
-      }
-    );
-
-    observer.observe(imgElement);
-
-    return () => {
-      observer.disconnect();
-    };
+    setIsError(false);
+    const targetUrl = station.coverUrl || getPlaceholder(station.id);
+    setImgSrc(targetUrl);
   }, [station.coverUrl, station.id]);
 
   const handleImageLoad = () => {
     setIsLoaded(true);
+    setIsError(false);
   };
 
   const handleImageError = () => {
+    setIsError(true);
     const fallbackUrl = getPlaceholder(station.id);
     if (imgSrc !== fallbackUrl) {
       setImgSrc(fallbackUrl);
@@ -116,7 +94,7 @@ export const StationCard = memo<StationCardProps>(({
             className={`w-full h-full object-cover transition-transform duration-500 ${isUnplayable ? 'grayscale' : 'group-hover:scale-110'} ${!isLoaded ? 'opacity-0' : 'opacity-100'}`}
           />
         )}
-        {!isLoaded && (
+        {!isLoaded && !isError && (
           <div className="absolute inset-0 bg-slate-200 dark:bg-slate-700 animate-pulse" />
         )}
         
